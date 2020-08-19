@@ -3,27 +3,131 @@ namespace Psalm\Tests;
 
 class ArgTest extends TestCase
 {
-    use Traits\FileCheckerInvalidCodeParseTestTrait;
-    use Traits\FileCheckerValidCodeParseTestTrait;
+    use Traits\InvalidCodeAnalysisTestTrait;
+    use Traits\ValidCodeAnalysisTestTrait;
 
     /**
-     * @return array
+     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
      */
-    public function providerFileCheckerValidCodeParse()
+    public function providerValidCodeParse()
     {
         return [
             'callMapClassOptionalArg' => [
                 '<?php
-                    $m = new ReflectionMethod("hello", "goodbye");
-                    $m->invoke("cool");',
+                    class Hello {}
+                    $m = new ReflectionMethod(Hello::class, "goodbye");
+                    $m->invoke(null, "cool");',
+            ],
+            'sortFunctions' => [
+                '<?php
+                    $a = ["b" => 5, "a" => 8];
+                    ksort($a);
+                    $b = ["b" => 5, "a" => 8];
+                    sort($b);
+                ',
+                'assertions' => [
+                    '$a' => 'array{a: int, b: int}',
+                    '$b' => 'list<int>',
+                ],
+            ],
+            'arrayModificationFunctions' => [
+                '<?php
+                    $a = ["b" => 5, "a" => 8];
+                    array_unshift($a, (bool)rand(0, 1));
+                    $b = ["b" => 5, "a" => 8];
+                    array_push($b, (bool)rand(0, 1));
+                ',
+                'assertions' => [
+                    '$a' => 'non-empty-array<int|string, bool|int>',
+                    '$b' => 'non-empty-array<int|string, bool|int>',
+                ],
+            ],
+            'byRefArgAssignment' => [
+                '<?php
+                    $a = ["hello", "goodbye"];
+                    shuffle($a);
+                    $a = [0, 1];',
+            ],
+            'correctOrderValidation' => [
+                '<?php
+                    function getString(int $i) : string {
+                        return rand(0, 1) ? "hello" : "";
+                    }
+
+                    function takesInt(int $i) : void {}
+
+                    $i = rand(0, 10);
+
+                    if (!($i = getString($i))) {}',
+            ],
+            'allowNullInObjectUnion' => [
+                '<?php
+                    /**
+                     * @param string|null|object $b
+                     */
+                    function foo($b) : void {}
+                    foo(null);',
+            ],
+            'allowArrayIntScalarForArrayStringWithScalarIgnored' => [
+                '<?php
+                    /** @param array<int|string> $arr */
+                    function foo(array $arr) : void {
+                    }
+
+                    /** @return array<int, scalar> */
+                    function bar() : array {
+                      return [];
+                    }
+
+                    /** @psalm-suppress InvalidScalarArgument */
+                    foo(bar());',
+            ],
+            'allowArrayScalarForArrayStringWithScalarIgnored' => [
+                '<?php declare(strict_types=1);
+                    /** @param array<string> $arr */
+                    function foo(array $arr) : void {}
+
+                    /** @return array<int, scalar> */
+                    function bar() : array {
+                        return [];
+                    }
+
+                    /** @psalm-suppress InvalidScalarArgument */
+                    foo(bar());',
+            ],
+            'unpackObjectlikeListArgs' => [
+                '<?php
+                    $a = [new DateTime(), 1];
+                    function f(DateTime $d, int $a): void {}
+                    f(...$a);',
+            ],
+            'unpackWithoutAlteringArray' => [
+                '<?php
+                    function takeVariadicInts(int ...$inputs): void {}
+
+                    $a = [3, 5, 7];
+                    takeVariadicInts(...$a);',
+                [
+                    '$a' => 'non-empty-list<int>'
+                ]
+            ],
+            'iterableSplat' => [
+                '<?php
+                    function foo(iterable $args): int {
+                        return intval(...$args);
+                    }
+
+                    function bar(ArrayIterator $args): int {
+                        return intval(...$args);
+                    }',
             ],
         ];
     }
 
     /**
-     * @return array
+     * @return iterable<string,array{string,error_message:string,2?:string[],3?:bool,4?:string}>
      */
-    public function providerFileCheckerInvalidCodeParse()
+    public function providerInvalidCodeParse()
     {
         return [
             'possiblyInvalidArgument' => [
@@ -32,13 +136,42 @@ class ArgTest extends TestCase
                         "a",
                         ["b"],
                     ];
-            
+
                     $a = array_map(
-                        function (string $uuid) : string {
+                        function (string $uuid): string {
                             return $uuid;
                         },
                         $foo[rand(0, 1)]
                     );',
+                'error_message' => 'PossiblyInvalidArgument',
+            ],
+            'possiblyInvalidArgumentWithOverlap' => [
+                '<?php
+                    class A {}
+                    class B {}
+                    class C {}
+
+                    $foo = rand(0, 1) ? new A : new B;
+
+                    /** @param B|C $b */
+                    function bar($b) : void {}
+
+                    bar($foo);',
+                'error_message' => 'PossiblyInvalidArgument',
+            ],
+            'possiblyInvalidArgumentWithMixed' => [
+                '<?php declare(strict_types=1);
+                    /**
+                     * @psalm-suppress MissingParamType
+                     * @psalm-suppress MixedArgument
+                     */
+                    function foo($a) : void {
+                        if (rand(0, 1)) {
+                            $a = 0;
+                        }
+
+                        echo strlen($a);
+                    }',
                 'error_message' => 'PossiblyInvalidArgument',
             ],
         ];

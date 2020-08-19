@@ -3,12 +3,13 @@ namespace Psalm\Tests;
 
 class NamespaceTest extends TestCase
 {
-    use Traits\FileCheckerValidCodeParseTestTrait;
+    use Traits\ValidCodeAnalysisTestTrait;
+    use Traits\InvalidCodeAnalysisTestTrait;
 
     /**
-     * @return array
+     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
      */
-    public function providerFileCheckerValidCodeParse()
+    public function providerValidCodeParse()
     {
         return [
             'emptyNamespace' => [
@@ -16,17 +17,17 @@ class NamespaceTest extends TestCase
                     namespace A {
                         /** @return void */
                         function foo() {
-            
+
                         }
-            
+
                         class Bar {
-            
+
                         }
                     }
                     namespace {
                         A\foo();
                         \A\foo();
-            
+
                         (new A\Bar);
                     }',
             ],
@@ -40,7 +41,7 @@ class NamespaceTest extends TestCase
                         function foo() {
                             echo \Aye\Bee\HELLO;
                         }
-            
+
                         class Bar {
                             /** @return void */
                             public function foo() {
@@ -48,6 +49,58 @@ class NamespaceTest extends TestCase
                             }
                         }
                     }',
+            ],
+            'argvReference' => [
+                '<?php
+                    namespace Foo;
+
+                    $a = $argv;
+                    $b = $argc;',
+            ],
+            'argvReferenceInFunction' => [
+                '<?php
+                    namespace Foo;
+
+                    function foo() : void {
+                        global $argv;
+
+                        $c = $argv;
+                    }',
+            ],
+        ];
+    }
+
+    /**
+     * @return iterable<string,array{string,error_message:string,2?:string[],3?:bool,4?:string}>
+     */
+    public function providerInvalidCodeParse()
+    {
+        return [
+            'callNamespacedFunctionFromEmptyNamespace' => [
+                '<?php
+                    namespace A {
+                        /** @return void */
+                        function foo() {
+
+                        }
+                    }
+                    namespace {
+                        foo();
+                    }',
+                'error_message' => 'UndefinedFunction',
+            ],
+            'callRootFunctionFromNamespace' => [
+                '<?php
+                    namespace {
+                        /** @return void */
+                        function foo() {
+
+                        }
+                    }
+                    namespace A {
+                        \A\foo();
+                    }',
+                'error_message' => 'UndefinedFunction',
             ],
         ];
     }

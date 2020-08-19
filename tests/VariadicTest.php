@@ -1,60 +1,75 @@
 <?php
 namespace Psalm\Tests;
 
-use Psalm\Checker\FileChecker;
+use Psalm\Config;
 use Psalm\Context;
+use Psalm\Internal\IncludeCollector;
+use Psalm\Tests\Internal\Provider;
+use function dirname;
+use function getcwd;
 
 class VariadicTest extends TestCase
 {
-    /**
-     * @dataProvider providerTestValidVariadic
-     *
-     * @param string $code
-     *
-     * @return void
-     */
-    public function testVariadic($code)
-    {
-        $this->addFile(
-            'somefile.php',
-            $code
-        );
-
-        $file_checker = new FileChecker('somefile.php', $this->project_checker);
-        $context = new Context();
-        $file_checker->visitAndAnalyzeMethods($context);
-    }
+    use Traits\ValidCodeAnalysisTestTrait;
 
     /**
-     * @expectedException        \Psalm\Exception\CodeException
-     * @expectedExceptionMessage InvalidScalarArgument
-     *
      * @return                   void
      */
     public function testVariadicArrayBadParam()
     {
+        $this->expectExceptionMessage('InvalidScalarArgument');
+        $this->expectException(\Psalm\Exception\CodeException::class);
         $this->addFile(
             'somefile.php',
             '<?php
                 /**
-                 * @param array<int, int> $a_list
+                 * @param int ...$a_list
                  * @return void
                  */
                 function f(int ...$a_list) {
                 }
-                f(1, 2, "3");
-                '
+                f(1, 2, "3");'
         );
 
-        $file_checker = new FileChecker('somefile.php', $this->project_checker);
-        $context = new Context();
-        $file_checker->visitAndAnalyzeMethods($context);
+        $this->analyzeFile('somefile.php', new Context());
     }
 
     /**
-     * @return array
+     * @throws \Psalm\Exception\ConfigException
+     * @return void
      */
-    public function providerTestValidVariadic()
+    public function testVariadicFunctionFromAutoloadFile()
+    {
+        $this->project_analyzer = $this->getProjectAnalyzerWithConfig(
+            TestConfig::loadFromXML(
+                dirname(__DIR__),
+                '<?xml version="1.0"?>
+                <psalm
+                    autoloader="tests/fixtures/stubs/custom_functions.php"
+                >
+                    <projectFiles>
+                        <directory name="src" />
+                    </projectFiles>
+                </psalm>'
+            )
+        );
+
+        $file_path = getcwd() . '/src/somefile.php';
+
+        $this->addFile(
+            $file_path,
+            '<?php
+                variadic2(16, 30);
+            '
+        );
+
+        $this->analyzeFile($file_path, new Context());
+    }
+
+    /**
+     * @return iterable<string,array{string,1?:array<string,string>,2?:string[]}>
+     */
+    public function providerValidCodeParse()
     {
         return [
             'variadic' => [
@@ -62,7 +77,7 @@ class VariadicTest extends TestCase
                 /**
                  * @param mixed $req
                  * @param mixed $opt
-                 * @param array<int, mixed> $params
+                 * @param mixed ...$params
                  * @return array<mixed>
                  */
                 function f($req, $opt = null, ...$params) {
@@ -75,10 +90,17 @@ class VariadicTest extends TestCase
                 f(1, 2, 3, 4);
                 f(1, 2, 3, 4, 5);',
             ],
+            'funcNumArgsVariadic' => [
+                '<?php
+                    function test(): array {
+                        return func_get_args();
+                    }
+                    var_export(test(2));',
+            ],
             'variadicArray' => [
                 '<?php
                     /**
-                     * @param array<int, int> $a_list
+                     * @param int ...$a_list
                      * @return array<int, int>
                      */
                     function f(int ...$a_list) {
@@ -105,5 +127,27 @@ class VariadicTest extends TestCase
                     }',
             ],
         ];
+    }
+
+    /**
+     * @param  Config $config
+     *
+     * @return \Psalm\Internal\Analyzer\ProjectAnalyzer
+     */
+    private function getProjectAnalyzerWithConfig(Config $config)
+    {
+        $project_analyzer = new \Psalm\Internal\Analyzer\ProjectAnalyzer(
+            $config,
+            new \Psalm\Internal\Provider\Providers(
+                $this->file_provider,
+                new Provider\FakeParserCacheProvider()
+            )
+        );
+        $project_analyzer->setPhpVersion('7.3');
+
+        $config->setIncludeCollector(new IncludeCollector());
+        $config->visitComposerAutoloadFiles($project_analyzer, null);
+
+        return $project_analyzer;
     }
 }

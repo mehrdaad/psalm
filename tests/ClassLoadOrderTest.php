@@ -3,13 +3,13 @@ namespace Psalm\Tests;
 
 class ClassLoadOrderTest extends TestCase
 {
-    use Traits\FileCheckerInvalidCodeParseTestTrait;
-    use Traits\FileCheckerValidCodeParseTestTrait;
+    use Traits\InvalidCodeAnalysisTestTrait;
+    use Traits\ValidCodeAnalysisTestTrait;
 
     /**
-     * @return array
+     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
      */
-    public function providerFileCheckerValidCodeParse()
+    public function providerValidCodeParse()
     {
         return [
             'singleFileInheritance' => [
@@ -17,12 +17,12 @@ class ClassLoadOrderTest extends TestCase
                     class A extends B {}
 
                     class B {
-                        public function fooFoo() : void {
+                        public function fooFoo(): void {
                             $a = new A();
                             $a->barBar();
                         }
 
-                        protected function barBar() : void {
+                        protected function barBar(): void {
                             echo "hello";
                         }
                     }',
@@ -49,17 +49,17 @@ class ClassLoadOrderTest extends TestCase
             'moreCyclicalReferences' => [
                 '<?php
                     class B extends C {
-                        public function d() : A {
+                        public function d(): A {
                             return new A;
                         }
                     }
                     class C {
                         /** @var string */
                         public $p = A::class;
-                        public static function e() : void {}
+                        public static function e(): void {}
                     }
                     class A extends B {
-                        private function f() : void {
+                        private function f(): void {
                             self::e();
                         }
                     }',
@@ -67,17 +67,17 @@ class ClassLoadOrderTest extends TestCase
             'referenceToSubclassInMethod' => [
                 '<?php
                     class A {
-                        public function b(B $b) : void {
+                        public function b(B $b): void {
 
                         }
 
-                        public function c() : void {
+                        public function c(): void {
 
                         }
                     }
 
                     class B extends A {
-                        public function d() : void {
+                        public function d(): void {
                             $this->c();
                         }
                     }',
@@ -85,7 +85,7 @@ class ClassLoadOrderTest extends TestCase
             'referenceToClassInMethod' => [
                 '<?php
                     class A {
-                        public function b(A $b) : void {
+                        public function b(A $b): void {
                             $b->b(new A());
                         }
                     }',
@@ -99,7 +99,9 @@ class ClassLoadOrderTest extends TestCase
                         protected $foo = C::DOPE;
 
                         /** @return string */
-                        public function __get() { }
+                        public function __get(string $s) {
+                            return "foo";
+                        }
                     }
 
                     class B extends A {
@@ -117,9 +119,9 @@ class ClassLoadOrderTest extends TestCase
     }
 
     /**
-     * @return array
+     * @return iterable<string,array{string,error_message:string,2?:string[],3?:bool,4?:string}>
      */
-    public function providerFileCheckerInvalidCodeParse()
+    public function providerInvalidCodeParse()
     {
         return [
             'inheritanceLoopOne' => [

@@ -1,7 +1,11 @@
 <?php
 namespace Psalm\Tests;
 
-use Psalm\Checker\FileChecker;
+use const DIRECTORY_SEPARATOR;
+use function getcwd;
+use function preg_quote;
+use Psalm\Internal\Analyzer\FileAnalyzer;
+use function strpos;
 
 class IncludeTest extends TestCase
 {
@@ -10,21 +14,42 @@ class IncludeTest extends TestCase
      *
      * @param array<int, string> $files_to_check
      * @param array<string, string> $files
+     * @param bool $hoist_constants
+     * @param array<string, string> $error_levels
      *
      * @return void
      */
-    public function testValidInclude(array $files, array $files_to_check)
-    {
-        foreach ($files as $filename => $contents) {
-            $this->addFile($filename, $contents);
-            $this->project_checker->registerAnalyzableFile($filename);
+    public function testValidInclude(
+        array $files,
+        array $files_to_check,
+        $hoist_constants = false,
+        array $error_levels = []
+    ) {
+        $codebase = $this->project_analyzer->getCodebase();
+
+        foreach ($files as $file_path => $contents) {
+            $this->addFile($file_path, $contents);
+            $codebase->scanner->addFilesToShallowScan([$file_path => $file_path]);
         }
 
-        $this->project_checker->scanFiles();
+        foreach ($files_to_check as $file_path) {
+            $codebase->addFilesToAnalyze([$file_path => $file_path]);
+        }
 
-        foreach ($files_to_check as $filename) {
-            $file_checker = new FileChecker($filename, $this->project_checker);
-            $file_checker->analyze();
+        $config = $codebase->config;
+        $config->skip_checks_on_unresolvable_includes = true;
+
+        foreach ($error_levels as $error_level) {
+            $config->setCustomErrorLevel($error_level, \Psalm\Config::REPORT_SUPPRESS);
+        }
+
+        $codebase->scanFiles();
+
+        $config->hoist_constants = $hoist_constants;
+
+        foreach ($files_to_check as $file_path) {
+            $file_analyzer = new FileAnalyzer($this->project_analyzer, $file_path, $config->shortenFileName($file_path));
+            $file_analyzer->analyze();
         }
     }
 
@@ -33,30 +58,47 @@ class IncludeTest extends TestCase
      *
      * @param array<int, string> $files_to_check
      * @param array<string, string> $files
-     * @param mixed $error_message
+     * @param string $error_message
+     * @param bool $hoist_constants
      *
      * @return void
      */
-    public function testInvalidInclude(array $files, array $files_to_check, $error_message)
-    {
-        foreach ($files as $filename => $contents) {
-            $this->addFile($filename, $contents);
-            $this->project_checker->registerAnalyzableFile($filename);
+    public function testInvalidInclude(
+        array $files,
+        array $files_to_check,
+        $error_message
+    ) {
+        if (strpos($this->getTestName(), 'SKIPPED-') !== false) {
+            $this->markTestSkipped();
         }
 
-        $this->project_checker->scanFiles();
+        $codebase = $this->project_analyzer->getCodebase();
 
-        $this->expectException('\Psalm\Exception\CodeException');
-        $this->expectExceptionMessage($error_message);
+        foreach ($files as $file_path => $contents) {
+            $this->addFile($file_path, $contents);
+            $codebase->scanner->addFilesToShallowScan([$file_path => $file_path]);
+        }
 
-        foreach ($files_to_check as $filename) {
-            $file_checker = new FileChecker($filename, $this->project_checker);
-            $file_checker->analyze();
+        foreach ($files_to_check as $file_path) {
+            $codebase->addFilesToAnalyze([$file_path => $file_path]);
+        }
+
+        $config = $codebase->config;
+        $config->skip_checks_on_unresolvable_includes = false;
+
+        $this->expectException(\Psalm\Exception\CodeException::class);
+        $this->expectExceptionMessageRegExp('/\b' . preg_quote($error_message, '/') . '\b/');
+
+        $codebase->scanFiles();
+
+        foreach ($files_to_check as $file_path) {
+            $file_analyzer = new FileAnalyzer($this->project_analyzer, $file_path, $config->shortenFileName($file_path));
+            $file_analyzer->analyze();
         }
     }
 
     /**
-     * @return array
+     * @return array<string,array{files:array<string,string>,files_to_check:array<int,string>}>
      */
     public function providerTestValidIncludes()
     {
@@ -67,13 +109,35 @@ class IncludeTest extends TestCase
                         require("file1.php");
 
                         class B {
-                            public function foo() : void {
+                            public function foo(): void {
                                 (new A)->fooFoo();
                             }
                         }',
                     getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
                         class A{
-                            public function fooFoo() : void {
+                            public function fooFoo(): void {
+
+                            }
+                        }',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
+                ],
+            ],
+            'requireSingleStringType' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        $a = "file1.php";
+                        require($a);
+
+                        class B {
+                            public function foo(): void {
+                                (new A)->fooFoo();
+                            }
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        class A{
+                            public function fooFoo(): void {
 
                             }
                         }',
@@ -86,7 +150,7 @@ class IncludeTest extends TestCase
                 'files' => [
                     getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
                         class A{
-                            public function fooFoo() : void {
+                            public function fooFoo(): void {
 
                             }
                         }',
@@ -99,7 +163,7 @@ class IncludeTest extends TestCase
                         require("file2.php");
 
                         class C extends B {
-                            public function doFoo() : void {
+                            public function doFoo(): void {
                                 $this->fooFoo();
                             }
                         }',
@@ -119,7 +183,7 @@ class IncludeTest extends TestCase
                         require("file1.php");
 
                         class B {
-                            public function foo() : void {
+                            public function foo(): void {
                                 (new Foo\A);
                             }
                         }',
@@ -131,13 +195,30 @@ class IncludeTest extends TestCase
             'requireFunction' => [
                 'files' => [
                     getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
-                        function fooFoo() : void {
+                        function fooFoo(): void {
 
                         }',
                     getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
                         require("file1.php");
 
                         fooFoo();',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
+                ],
+            ],
+            'namespacedRequireFunction' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        function fooFoo(): void {
+
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        namespace Foo;
+
+                        require("file1.php");
+
+                        \fooFoo();',
                 ],
                 'files_to_check' => [
                     getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
@@ -171,7 +252,7 @@ class IncludeTest extends TestCase
                         use Foo\A;
 
                         class B {
-                            public function foo() : void {
+                            public function foo(): void {
                                 (new A);
                             }
                         }',
@@ -187,7 +268,7 @@ class IncludeTest extends TestCase
                         require_once("file3.php");
 
                         class B extends A {
-                            public function doFoo() : void {
+                            public function doFoo(): void {
                                 $this->fooFoo();
                             }
                         }
@@ -199,7 +280,7 @@ class IncludeTest extends TestCase
                         require_once("file3.php");
 
                         class A{
-                            public function fooFoo() : void { }
+                            public function fooFoo(): void { }
                         }
 
                         new C();',
@@ -222,20 +303,20 @@ class IncludeTest extends TestCase
                     getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
                         require_once("file2.php");
                         class B extends A {
-                            public function doFoo() : void {
+                            public function doFoo(): void {
                                 $this->fooFoo();
                             }
                         }
                         class C {
-                            public function barBar() : void { }
+                            public function barBar(): void { }
                         }',
                     getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
                         require_once("file1.php");
                         class A{
-                            public function fooFoo() : void { }
+                            public function fooFoo(): void { }
                         }
                         class D extends C {
-                            public function doBar() : void {
+                            public function doBar(): void {
                                 $this->barBar();
                             }
                         }',
@@ -263,11 +344,268 @@ class IncludeTest extends TestCase
                     getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
                 ],
             ],
+            'variadicArgs' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        require_once("file2.php");
+                        variadicArgs(5, 2, "hello");',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        function variadicArgs() : void {
+                            $args = func_get_args();
+                        }',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php',
+                ],
+            ],
+            'globalIncludedVar' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        $a = 5;
+                        require_once("file2.php");',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        require_once("file3.php");',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file3.php' => '<?php
+                        function getGlobal() : void {
+                            global $a;
+
+                            echo $a;
+                        }',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php',
+                ],
+            ],
+            'returnNamespacedFunctionCallType' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        namespace Foo;
+
+                        class A{
+                            function doThing() : void {}
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        namespace Bar;
+
+                        require("file1.php");
+
+                        use Foo\A;
+
+                        /** @return A */
+                        function getThing() {
+                            return new A;
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file3.php' => '<?php
+                        namespace Bat;
+
+                        require("file2.php");
+
+                        class C {
+                            function boop() : void {
+                                \Bar\getThing()->doThing();
+                            }
+                        }',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file3.php',
+                ],
+            ],
+            'functionUsedElsewhere' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        require_once("file2.php");
+                        require_once("file3.php");
+                        function foo() : void {}',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        foo();
+                        array_filter([1, 2, 3, 4], "bar");',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file3.php' => '<?php
+                        function bar(int $i) : bool { return (bool) rand(0, 1); }',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php',
+                ],
+            ],
+            'closureInIncludedFile' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        require_once("file2.php");',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        return function(): string { return "asd"; };',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php',
+                ],
+            ],
+            'hoistConstants' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        require_once("file2.php");',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        function bat() : void {
+                            echo FOO . BAR;
+                        }
+
+                        define("FOO", 5);
+                        const BAR = "BAR";',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
+                ],
+                'hoist_constants' => true,
+            ],
+            'duplicateClasses' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        class A {
+                            /** @var string|null */
+                            protected $a;
+                            public function aa() : void {}
+                            public function bb() : void { $this->aa(); }
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        class A {
+                            /** @var string|null */
+                            protected $b;
+                            public function dd() : void {}
+                            public function zz() : void { $this->dd(); }
+                        }',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
+                ],
+                'hoist_constants' => false,
+                'error_levels' => ['DuplicateClass'],
+            ],
+            'duplicateClassesProperty' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        class A {
+                            protected $a;
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        class A {
+                            protected $b;
+                        }',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
+                ],
+                'hoist_constants' => false,
+                'error_levels' => ['DuplicateClass', 'MissingPropertyType'],
+            ],
+            'functionsDefined' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'index.php' => '<?php
+                        include "func.php";
+                        include "Base.php";
+                        include "Child.php";',
+                    getcwd() . DIRECTORY_SEPARATOR . 'func.php' => '<?php
+                        namespace ns;
+
+                        function func(): void {}
+
+                        define("ns\\cons", 0);
+
+                        cons;',
+                    getcwd() . DIRECTORY_SEPARATOR . 'Base.php' => '<?php
+                        namespace ns;
+
+                        func();
+
+                        cons;
+
+                        class Base {
+                            public function __construct() {}
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'Child.php' => '<?php
+                        namespace ns;
+
+                        func();
+
+                        cons;
+
+                        class Child extends Base {
+                            /**
+                             * @var int
+                             */
+                            public $x;
+
+                            public function __construct() {
+                                parent::__construct();
+
+                                $this->x = 5;
+                            }
+                        }',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'index.php',
+                ],
+            ],
+            'suppressMissingFile' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        function getEndpoints() : void {
+                            $listFile = "tests/fixtures/stubs/custom_functions.php";
+                            if (!file_exists($listFile)) {
+                                throw new RuntimeException("Endpoint list not found");
+                            }
+                            include $listFile;
+                        }',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php',
+                ],
+            ],
+            'nestedParentFile' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'a' . DIRECTORY_SEPARATOR . 'b' . DIRECTORY_SEPARATOR . 'c' . DIRECTORY_SEPARATOR . 'd' . DIRECTORY_SEPARATOR . 'script.php' => '<?php
+                        require_once __DIR__ . "/../../../../e/begin.php";',
+                    getcwd() . DIRECTORY_SEPARATOR . 'e' . DIRECTORY_SEPARATOR . 'begin.php' => '<?php
+                        echo "hello";',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'a' . DIRECTORY_SEPARATOR . 'b' . DIRECTORY_SEPARATOR . 'c' . DIRECTORY_SEPARATOR . 'd' . DIRECTORY_SEPARATOR . 'script.php',
+                ],
+            ],
+            'undefinedMethodAfterInvalidRequire' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        /** @psalm-suppress MissingFile */
+                        require("doesnotexist.php");
+                        require("file1.php");
+
+                        foo();
+                        bar();
+                        ',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        function bar(): void {}
+                        ',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
+                ],
+            ],
+            'returnValue' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        $a = require("file1.php");
+                        echo $a;',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        return "hello";',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
+                ],
+            ],
         ];
     }
 
     /**
-     * @return array
+     * @return array<string,array{files:array<string,string>,files_to_check:array<int,string>,error_message:string}>
      */
     public function providerTestInvalidIncludes()
     {
@@ -278,13 +616,13 @@ class IncludeTest extends TestCase
                         require("file1.php");
 
                         class B {
-                            public function foo() : void {
+                            public function foo(): void {
                                 (new A)->fooFo();
                             }
                         }',
                     getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
                         class A{
-                            public function fooFoo() : void {
+                            public function fooFoo(): void {
 
                             }
                         }',
@@ -293,6 +631,223 @@ class IncludeTest extends TestCase
                     getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
                 ],
                 'error_message' => 'UndefinedMethod',
+            ],
+            'requireFunctionWithStrictTypes' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        function fooFoo(int $bar): void {
+
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php declare(strict_types=1);
+                        require("file1.php");
+
+                        fooFoo("hello");',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
+                ],
+                'error_message' => 'InvalidArgument',
+            ],
+            'requireFunctionWithStrictTypesInClass' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        function fooFoo(int $bar): void {
+
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php declare(strict_types=1);
+                        require("file1.php");
+
+                        class A {
+                            public function foo() {
+                                fooFoo("hello");
+                            }
+                        }',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
+                ],
+                'error_message' => 'InvalidArgument',
+            ],
+            'requireFunctionWithWeakTypes' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        function fooFoo(int $bar): void {
+
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        require("file1.php");
+
+                        fooFoo("hello");',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
+                ],
+                'error_message' => 'InvalidScalarArgument',
+            ],
+            'requireFunctionWithStrictTypesButDocblockType' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        /** @param int $bar */
+                        function fooFoo($bar): void {
+
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php declare(strict_types=1);
+                        require("file1.php");
+
+                        fooFoo("hello");',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
+                ],
+                'error_message' => 'InvalidScalarArgument',
+            ],
+            'namespacedRequireFunction' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        function fooFoo(): void {
+
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        namespace Foo;
+
+                        require("file1.php");
+
+                        \Foo\fooFoo();',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
+                ],
+                'error_message' => 'UndefinedFunction',
+            ],
+            'globalIncludedIncorrectVar' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        $a = 5;
+                        require_once("file2.php");',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        require_once("file3.php");',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file3.php' => '<?php
+                        function getGlobal() : void {
+                            global $b;
+
+                            echo $a;
+                        }',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php',
+                ],
+                'error_message' => 'UndefinedVariable',
+            ],
+            'invalidTraitFunctionReturnInUncheckedFile' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        require("file1.php");
+
+                        class B {
+                            use A;
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        trait A{
+                            public function fooFoo(): string {
+                                return 5;
+                            }
+                        }',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
+                ],
+                'error_message' => 'InvalidReturnType',
+            ],
+            'invalidDoubleNestedTraitFunctionReturnInUncheckedFile' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file3.php' => '<?php
+                        namespace Foo;
+
+                        require("file2.php");
+
+                        use Bar\B;
+
+                        class C {
+                            use B;
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        namespace Bar;
+
+                        require("file1.php");
+
+                        use Bat\A;
+
+                        trait B {
+                            use A;
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        namespace Bat;
+
+                        trait A{
+                            public function fooFoo(): string {
+                                return 5;
+                            }
+                        }',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file3.php',
+                ],
+                'error_message' => 'InvalidReturnType',
+            ],
+            'invalidTraitFunctionMissingNestedUse' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'A.php' => '<?php
+                        trait A {
+                            use C;
+                        }',
+                    getcwd() . DIRECTORY_SEPARATOR . 'B.php' => '<?php
+                        require("A.php");
+
+                        class B {
+                            use A;
+                        }',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'A.php',
+                    getcwd() . DIRECTORY_SEPARATOR . 'B.php',
+                ],
+                'error_message' => 'UndefinedTrait - A.php:3:33',
+            ],
+            'SKIPPED-noHoistConstants' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        require_once("file2.php");',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        function bat() : void {
+                            echo FOO . BAR;
+                        }
+
+                        define("FOO", 5);
+                        const BAR = "BAR";',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php',
+                ],
+                'error_message' => 'UndefinedConstant',
+            ],
+            'undefinedMethodAfterInvalidRequire' => [
+                'files' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php' => '<?php
+                        /** @psalm-suppress MissingFile */
+                        require("doesnotexist.php");
+                        require("file1.php");
+
+                        foo();
+                        bar();
+                        ',
+                    getcwd() . DIRECTORY_SEPARATOR . 'file1.php' => '<?php
+                        function bar(): void {}
+                        ',
+                ],
+                'files_to_check' => [
+                    getcwd() . DIRECTORY_SEPARATOR . 'file2.php',
+                ],
+                'error_message' => 'UndefinedFunction',
             ],
         ];
     }

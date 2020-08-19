@@ -1,6 +1,8 @@
 <?php
 namespace Psalm\Issue;
 
-class UndefinedThisPropertyAssignment extends UndefinedPropertyAssignment
+class UndefinedThisPropertyAssignment extends PropertyIssue
 {
+    const ERROR_LEVEL = 5;
+    const SHORTCODE = 40;
 }

@@ -3,12 +3,13 @@ namespace Psalm\Tests;
 
 class Php56Test extends TestCase
 {
-    use Traits\FileCheckerValidCodeParseTestTrait;
+    use Traits\ValidCodeAnalysisTestTrait;
+    use Traits\InvalidCodeAnalysisTestTrait;
 
     /**
-     * @return array
+     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
      */
-    public function providerFileCheckerValidCodeParse()
+    public function providerValidCodeParse()
     {
         return [
             'constArray' => [
@@ -28,11 +29,14 @@ class Php56Test extends TestCase
                         const ONE_THIRD = self::ONE / self::THREE;
                         const SENTENCE = "The value of THREE is " . self::THREE;
 
+                        /** @var int */
+                        public $four = self::ONE + self::THREE;
+
                         /**
                          * @param  int $a
                          * @return int
                          */
-                        public function f($a = ONE + self::THREE) {
+                        public function f($a = self::ONE + self::THREE) {
                             return $a;
                         }
                     }
@@ -42,7 +46,8 @@ class Php56Test extends TestCase
                     $c3 = C::THREE;
                     $c1_3rd = C::ONE_THIRD;
                     $c_sentence = C::SENTENCE;
-                    $cf = (new C)->f();',
+                    $cf = (new C)->f();
+                    $c4 = (new C)->four;',
                 'assertions' => [
                     '$c1' => 'int',
                     '$c2' => 'int',
@@ -50,6 +55,7 @@ class Php56Test extends TestCase
                     '$c1_3rd' => 'float|int',
                     '$c_sentence' => 'string',
                     '$cf' => 'int',
+                    '$c4' => 'int',
                 ],
             ],
             'constFeatures' => [
@@ -78,6 +84,86 @@ class Php56Test extends TestCase
 
                     $operators = [2, 3];
                     echo add(1, ...$operators);',
+            ],
+            'arrayPushArgumentUnpackingWithGoodArg' => [
+                '<?php
+                    $a = ["foo"];
+                    $b = ["foo", "bar"];
+
+                    array_push($a, ...$b);',
+                'assertions' => [
+                    '$a' => 'non-empty-list<string>',
+                ],
+            ],
+            'arrayMergeArgumentUnpacking' => [
+                '<?php
+                    $a = [[1, 2]];
+                    $b = array_merge([], ...$a);',
+                'assertions' => [
+                    '$b' => 'array{0: int, 1: int}',
+                ],
+            ],
+            'preserveTypesWhenUnpacking' => [
+                '<?php
+                    /**
+                     * @return array<int,array<int,string>>
+                     */
+                    function getData(): array
+                    {
+                        return [
+                            ["a", "b"],
+                            ["c", "d"]
+                        ];
+                    }
+
+                    /**
+                     * @return array<int,string>
+                     */
+                    function f1(): array
+                    {
+                        $data = getData();
+                        return array_merge($data[0], $data[1]);
+                    }
+
+                    /**
+                     * @return array<int,string>
+                     */
+                    function f2(): array
+                    {
+                        $data = getData();
+                        return array_merge(...$data);
+                    }
+
+                    /**
+                     * @return array<int,string>
+                     */
+                    function f3(): array
+                    {
+                        $data = getData();
+                        return array_merge([], ...$data);
+                    }',
+            ],
+            'unpackArg' => [
+                '<?php
+                    function Foo(string $a, string ...$b) : void {}
+
+                    /** @return array<int, string> */
+                    function Baz(string ...$c) {
+                        Foo(...$c);
+                        return $c;
+                    }',
+            ],
+            'unpackByRefArg' => [
+                '<?php
+                    function example (int &...$x): void {}
+                    $y = 0;
+                    example($y);
+                    $z = [0];
+                    example(...$z);',
+                'assertions' => [
+                    '$y' => 'int',
+                    '$z' => 'array<int, int>',
+                ],
             ],
             'exponentiation' => [
                 '<?php
@@ -151,6 +237,36 @@ class Php56Test extends TestCase
                             }
                         }
                     }',
+            ],
+            'yieldReturn' => [
+                '<?php
+                    function foo() : Traversable {
+                        if (rand(0, 1)) {
+                            yield "hello";
+                            return;
+                        }
+
+                        yield "goodbye";
+                    }',
+            ],
+        ];
+    }
+
+    /**
+     * @return iterable<string,array{string,error_message:string,2?:string[],3?:bool,4?:string}>
+     */
+    public function providerInvalidCodeParse()
+    {
+        return [
+            'arrayPushArgumentUnpackingWithBadArg' => [
+                '<?php
+                    $a = [];
+                    $b = "hello";
+
+                    $a[] = "foo";
+
+                    array_push($a, ...$b);',
+                'error_message' => 'InvalidArgument',
             ],
         ];
     }

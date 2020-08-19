@@ -3,10 +3,14 @@ namespace Psalm\Issue;
 
 use Psalm\CodeLocation;
 use Psalm\Config;
+use function explode;
+use function get_called_class;
+use function array_pop;
 
 abstract class CodeIssue
 {
-    const CODE_EXCEPTION = 1;
+    const ERROR_LEVEL = -1;
+    const SHORTCODE = 0;
 
     /**
      * @var CodeLocation
@@ -22,8 +26,10 @@ abstract class CodeIssue
      * @param string        $message
      * @param CodeLocation  $code_location
      */
-    public function __construct($message, CodeLocation $code_location)
-    {
+    public function __construct(
+        $message,
+        CodeLocation $code_location
+    ) {
         $this->code_location = $code_location;
         $this->message = $message;
     }
@@ -39,7 +45,7 @@ abstract class CodeIssue
     /**
      * @return string
      */
-    public function getShortLocation()
+    public function getShortLocationWithPrevious()
     {
         $previous_text = '';
 
@@ -54,6 +60,14 @@ abstract class CodeIssue
     /**
      * @return string
      */
+    public function getShortLocation()
+    {
+        return $this->code_location->file_name . ':' . $this->code_location->getLineNumber();
+    }
+
+    /**
+     * @return string
+     */
     public function getFilePath()
     {
         return $this->code_location->file_path;
@@ -61,6 +75,8 @@ abstract class CodeIssue
 
     /**
      * @return string
+     *
+     * @psalm-suppress PossiblyUnusedMethod for convenience
      */
     public function getFileName()
     {
@@ -78,10 +94,9 @@ abstract class CodeIssue
     /**
      * @param  string          $severity
      *
-     * @return array{severity: string, line_number: string, type: string, message: string, file_name: string,
-     *  file_path: string, snippet: string, from: int, to: int, snippet_from: int, snippet_to: int, column: int}
+     * @return \Psalm\Internal\Analyzer\IssueData
      */
-    public function toArray($severity = Config::REPORT_ERROR)
+    public function toIssueData($severity = Config::REPORT_ERROR)
     {
         $location = $this->getLocation();
         $selection_bounds = $location->getSelectionBounds();
@@ -90,19 +105,25 @@ abstract class CodeIssue
         $fqcn_parts = explode('\\', get_called_class());
         $issue_type = array_pop($fqcn_parts);
 
-        return [
-            'severity' => $severity,
-            'line_number' => $location->getLineNumber(),
-            'type' => $issue_type,
-            'message' => $this->getMessage(),
-            'file_name' => $location->file_name,
-            'file_path' => $location->file_path,
-            'snippet' => $location->getSnippet(),
-            'from' => $selection_bounds[0],
-            'to' => $selection_bounds[1],
-            'snippet_from' => $snippet_bounds[0],
-            'snippet_to' => $snippet_bounds[1],
-            'column' => $location->getColumn(),
-        ];
+        return new \Psalm\Internal\Analyzer\IssueData(
+            $severity,
+            $location->getLineNumber(),
+            $location->getEndLineNumber(),
+            $issue_type,
+            $this->getMessage(),
+            $location->file_name,
+            $location->file_path,
+            $location->getSnippet(),
+            $location->getSelectedText(),
+            $selection_bounds[0],
+            $selection_bounds[1],
+            $snippet_bounds[0],
+            $snippet_bounds[1],
+            $location->getColumn(),
+            $location->getEndColumn(),
+            (int) static::SHORTCODE,
+            (int) static::ERROR_LEVEL,
+            $this instanceof TaintedInput ? $this->getTaintTrace() : null
+        );
     }
 }

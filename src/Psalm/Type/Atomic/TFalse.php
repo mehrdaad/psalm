@@ -11,8 +11,13 @@ class TFalse extends TBool
     /**
      * @return string
      */
-    public function getKey()
+    public function getKey(bool $include_extra = true)
     {
         return 'false';
+    }
+
+    public function canBeFullyExpressedInPhp()
+    {
+        return false;
     }
 }

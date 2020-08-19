@@ -3,13 +3,13 @@ namespace Psalm\Tests;
 
 class Php71Test extends TestCase
 {
-    use Traits\FileCheckerInvalidCodeParseTestTrait;
-    use Traits\FileCheckerValidCodeParseTestTrait;
+    use Traits\InvalidCodeAnalysisTestTrait;
+    use Traits\ValidCodeAnalysisTestTrait;
 
     /**
-     * @return array
+     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
      */
-    public function providerFileCheckerValidCodeParse()
+    public function providerValidCodeParse()
     {
         return [
             'nullableReturnType' => [
@@ -21,7 +21,7 @@ class Php71Test extends TestCase
 
                     $a = a();',
                 'assertions' => [
-                    '$a' => 'string|null',
+                    '$a' => 'null|string',
                 ],
             ],
             'nullableReturnTypeInDocblock' => [
@@ -38,7 +38,7 @@ class Php71Test extends TestCase
             ],
             'nullableArgument' => [
                 '<?php
-                    function test(?string $name) : ?string
+                    function test(?string $name): ?string
                     {
                         return $name;
                     }
@@ -55,7 +55,7 @@ class Php71Test extends TestCase
 
                     class B extends A
                     {
-                        function fooFoo() : int {
+                        function fooFoo(): int {
                             return A::IS_PROTECTED;
                         }
                     }',
@@ -66,7 +66,7 @@ class Php71Test extends TestCase
                     {
                         private const IS_PRIVATE = 1;
 
-                        function fooFoo() : int {
+                        function fooFoo(): int {
                             return A::IS_PRIVATE;
                         }
                     }',
@@ -81,7 +81,7 @@ class Php71Test extends TestCase
 
                     class B extends A
                     {
-                        function fooFoo() : int {
+                        function fooFoo(): int {
                             echo A::IS_PUBLIC;
                             return A::IS_ALSO_PUBLIC;
                         }
@@ -90,7 +90,7 @@ class Php71Test extends TestCase
                     echo A::IS_PUBLIC;
                     echo A::IS_ALSO_PUBLIC;',
             ],
-            'arrayDestructuring' => [
+            'arrayDestructuringList' => [
                 '<?php
                     $data = [
                         [1, "Tom"],
@@ -103,10 +103,10 @@ class Php71Test extends TestCase
                     // [] style
                     [$id2, $name2] = $data[1];',
                 'assertions' => [
-                    '$id1' => 'string|int',
-                    '$name1' => 'string|int',
-                    '$id2' => 'string|int',
-                    '$name2' => 'string|int',
+                    '$id1' => 'int',
+                    '$name1' => 'string',
+                    '$id2' => 'int',
+                    '$name2' => 'string',
                 ],
             ],
             'arrayDestructuringInForeach' => [
@@ -148,17 +148,14 @@ class Php71Test extends TestCase
                         ["id" => 2, "name" => "Fred"],
                     ];
 
-                    $last_id = null;
-                    $last_name = null;
-
                     // list() style
                     foreach ($data as list("id" => $id, "name" => $name)) {
                         $last_id = $id;
                         $last_name = $name;
                     }',
                 'assertions' => [
-                    '$last_id' => 'null|int',
-                    '$last_name' => 'null|string',
+                    '$last_id' => 'int',
+                    '$last_name' => 'string',
                 ],
             ],
             'arrayDestructuringInForeachWithKeys' => [
@@ -168,17 +165,14 @@ class Php71Test extends TestCase
                         ["id" => 2, "name" => "Fred"],
                     ];
 
-                    $last_id = null;
-                    $last_name = null;
-
                     // [] style
                     foreach ($data as ["id" => $id, "name" => $name]) {
                         $last_id = $id;
                         $last_name = $name;
                     }',
                 'assertions' => [
-                    '$last_id' => 'null|int',
-                    '$last_name' => 'null|string',
+                    '$last_id' => 'int',
+                    '$last_name' => 'string',
                 ],
             ],
             'iterableArg' => [
@@ -186,7 +180,7 @@ class Php71Test extends TestCase
                     /**
                      * @param  iterable<int, int> $iter
                      */
-                    function iterator(iterable $iter) : void
+                    function iterator(iterable $iter): void
                     {
                         foreach ($iter as $val) {
                             //
@@ -194,31 +188,77 @@ class Php71Test extends TestCase
                     }
 
                     iterator([1, 2, 3, 4]);
+                    /** @psalm-suppress MixedArgumentTypeCoercion */
                     iterator(new SplFixedArray(5));',
             ],
             'traversableObject' => [
                 '<?php
                     class IteratorObj implements Iterator {
-                        function rewind() : void {}
+                        function rewind(): void {}
                         /** @return mixed */
                         function current() { return null; }
-                        function key() : int { return 0; }
-                        function next() : void {}
-                        function valid() : bool { return false; }
+                        function key(): int { return 0; }
+                        function next(): void {}
+                        function valid(): bool { return false; }
                     }
 
-                    function foo(\Traversable $t) : void {
+                    function foo(\Traversable $t): void {
                     }
 
                     foo(new IteratorObj);',
+            ],
+            'iterableIsArrayOrTraversable' => [
+                '<?php
+                    function castToArray(iterable $arr): array {
+                        if ($arr instanceof \Traversable) {
+                            return iterator_to_array($arr, false);
+                        }
+
+                        return $arr;
+                    }
+
+                    function castToArray2(iterable $arr): array {
+                        if (is_array($arr)) {
+                            return $arr;
+                        }
+
+                        return iterator_to_array($arr, false);
+                    }',
+            ],
+            'substituteIterable' => [
+                '<?php
+                    function foo(iterable $i): array {
+                      if (!is_array($i)) {
+                        $i = iterator_to_array($i, false);
+                      }
+
+                      return $i;
+                    }',
+            ],
+            'noReservedWordInDocblock' => [
+                '<?php
+                    /**
+                     * @param Closure():(resource|false) $op
+                     * @return resource|false
+                     */
+                    function create_resource($op) {
+                        return $op();
+                    }',
+            ],
+            'arrayDestructuringOnArrayObject' => [
+                '<?php
+                    $var = new ArrayObject([0 => "first", "dos" => "second"]);
+                    [0 => $first, "dos" => $second] = $var;
+                    echo $first;
+                    echo $second;',
             ],
         ];
     }
 
     /**
-     * @return array
+     * @return iterable<string,array{string,error_message:string,2?:string[],3?:bool,4?:string}>
      */
-    public function providerFileCheckerInvalidCodeParse()
+    public function providerInvalidCodeParse()
     {
         return [
             'invalidPrivateClassConstFetch' => [
@@ -240,7 +280,7 @@ class Php71Test extends TestCase
 
                     class B extends A
                     {
-                        function fooFoo() : int {
+                        function fooFoo(): int {
                             return A::IS_PRIVATE;
                         }
                     }',
@@ -261,7 +301,7 @@ class Php71Test extends TestCase
                     /**
                      * @param  iterable<string> $iter
                      */
-                    function iterator(iterable $iter) : void
+                    function iterator(iterable $iter): void
                     {
                         foreach ($iter as $val) {
                             //
@@ -273,6 +313,40 @@ class Php71Test extends TestCase
 
                     iterator(new A());',
                 'error_message' => 'InvalidArgument',
+            ],
+            'voidDoesntWorkIn70' => [
+                '<?php
+                    function foo(): void {
+
+                    }',
+                'error_message' => 'ReservedWord',
+                [],
+                false,
+                '7.0',
+            ],
+            'objectDoesntWorkIn71' => [
+                '<?php
+                    function foo(): object {
+                        return new stdClass();
+                    }',
+                'error_message' => 'ReservedWord',
+                [],
+                false,
+                '7.0',
+            ],
+            'arrayDestructuringInvalidList' => [
+                '<?php
+                    $a = 42;
+
+                    list($id1, $name1) = $a;',
+                'error_message' => 'InvalidArrayOffset',
+            ],
+            'arrayDestructuringInvalidArray' => [
+                '<?php
+                    $a = 42;
+
+                    [$id2, $name2] = $a;',
+                'error_message' => 'InvalidArrayOffset',
             ],
         ];
     }

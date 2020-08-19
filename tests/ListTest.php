@@ -1,15 +1,17 @@
 <?php
 namespace Psalm\Tests;
 
+use const DIRECTORY_SEPARATOR;
+
 class ListTest extends TestCase
 {
-    use Traits\FileCheckerInvalidCodeParseTestTrait;
-    use Traits\FileCheckerValidCodeParseTestTrait;
+    use Traits\InvalidCodeAnalysisTestTrait;
+    use Traits\ValidCodeAnalysisTestTrait;
 
     /**
-     * @return array
+     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
      */
-    public function providerFileCheckerValidCodeParse()
+    public function providerValidCodeParse()
     {
         return [
             'simpleVars' => [
@@ -33,8 +35,8 @@ class ListTest extends TestCase
                     $bar = ["a", 2];
                     list($a, $b) = $bar;',
                 'assertions' => [
-                    '$a' => 'int|string',
-                    '$b' => 'int|string',
+                    '$a' => 'string',
+                    '$b' => 'int',
                 ],
             ],
             'thisVar' => [
@@ -46,7 +48,7 @@ class ListTest extends TestCase
                         /** @var string */
                         public $b = "";
 
-                        public function fooFoo() : string
+                        public function fooFoo(): string
                         {
                             list($this->a, $this->b) = ["a", "b"];
 
@@ -54,13 +56,29 @@ class ListTest extends TestCase
                         }
                     }',
             ],
+            'mixedNestedAssignment' => [
+                '<?php
+                    /** @psalm-suppress MissingReturnType */
+                    function getMixed() {}
+
+                    /**
+                     * @psalm-suppress MixedArrayAccess
+                     * @psalm-suppress MixedAssignment
+                     */
+                    list($a, list($b, $c)) = getMixed();',
+                'assertions' => [
+                    '$a' => 'mixed',
+                    '$b' => 'mixed',
+                    '$c' => 'mixed',
+                ],
+            ],
         ];
     }
 
     /**
-     * @return array
+     * @return iterable<string,array{string,error_message:string,2?:string[],3?:bool,4?:string}>
      */
-    public function providerFileCheckerInvalidCodeParse()
+    public function providerInvalidCodeParse()
     {
         return [
             'thisVarWithBadType' => [
@@ -72,14 +90,14 @@ class ListTest extends TestCase
                         /** @var string */
                         public $b = "";
 
-                        public function fooFoo() : string
+                        public function fooFoo(): string
                         {
                             list($this->a, $this->b) = ["a", "b"];
 
                             return $this->a;
                         }
                     }',
-                'error_message' => 'InvalidPropertyAssignment - src/somefile.php:11',
+                'error_message' => 'InvalidPropertyAssignmentValue - src' . DIRECTORY_SEPARATOR . 'somefile.php:11',
             ],
         ];
     }

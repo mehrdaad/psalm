@@ -1,0 +1,13 @@
+{
+    "name": "acme/sample-project",
+    "description": "A sample project to be used when testing Psalm",
+    "type": "project",
+    "require": {
+        "vimeo/psalm": "^3.11"
+    },
+    "autoload": {
+        "psr-4": {
+            "Acme\\SampleProject\\": "src/"
+        }
+    }
+}

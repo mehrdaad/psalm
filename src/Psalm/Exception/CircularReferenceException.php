@@ -1,6 +1,6 @@
 <?php
 namespace Psalm\Exception;
 
-class CircularReferenceException extends CodeException
+class CircularReferenceException extends \Exception
 {
 }

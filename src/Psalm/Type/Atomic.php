@@ -1,35 +1,75 @@
 <?php
 namespace Psalm\Type;
 
-use Psalm\Checker\ClassChecker;
-use Psalm\Checker\ClassLikeChecker;
-use Psalm\Checker\ProjectChecker;
+use function array_filter;
+use function array_keys;
+use function array_search;
+use function array_values;
+use function count;
+use function get_class;
+use function is_numeric;
+use Psalm\Codebase;
 use Psalm\CodeLocation;
+use Psalm\Internal\Analyzer\ClassLikeAnalyzer;
+use Psalm\Internal\Analyzer\Statements\ExpressionAnalyzer;
+use Psalm\Internal\Analyzer\StatementsAnalyzer;
+use Psalm\Internal\Analyzer\TypeAnalyzer;
+use Psalm\Internal\Type\TemplateResult;
+use Psalm\Internal\Type\TypeAlias;
+use Psalm\Issue\InvalidTemplateParam;
+use Psalm\Issue\MissingTemplateParam;
 use Psalm\Issue\ReservedWord;
+use Psalm\Issue\TooManyTemplateParams;
+use Psalm\Issue\UndefinedConstant;
 use Psalm\IssueBuffer;
 use Psalm\StatementsSource;
+use Psalm\Storage\FileStorage;
 use Psalm\Type;
 use Psalm\Type\Atomic\ObjectLike;
-use Psalm\Type\Atomic\Scalar;
 use Psalm\Type\Atomic\TArray;
+use Psalm\Type\Atomic\TArrayKey;
+use Psalm\Type\Atomic\TAssertionFalsy;
 use Psalm\Type\Atomic\TBool;
 use Psalm\Type\Atomic\TCallable;
+use Psalm\Type\Atomic\TCallableArray;
+use Psalm\Type\Atomic\TCallableList;
+use Psalm\Type\Atomic\TCallableObject;
+use Psalm\Type\Atomic\TCallableObjectLikeArray;
+use Psalm\Type\Atomic\TCallableString;
+use Psalm\Type\Atomic\TClassString;
 use Psalm\Type\Atomic\TEmpty;
 use Psalm\Type\Atomic\TFalse;
 use Psalm\Type\Atomic\TFloat;
+use Psalm\Type\Atomic\THtmlEscapedString;
 use Psalm\Type\Atomic\TInt;
+use Psalm\Type\Atomic\TIterable;
+use Psalm\Type\Atomic\TList;
+use Psalm\Type\Atomic\TLiteralClassString;
 use Psalm\Type\Atomic\TMixed;
 use Psalm\Type\Atomic\TNamedObject;
+use Psalm\Type\Atomic\TNever;
+use Psalm\Type\Atomic\TNonEmptyArray;
+use Psalm\Type\Atomic\TNonEmptyList;
 use Psalm\Type\Atomic\TNull;
 use Psalm\Type\Atomic\TNumeric;
 use Psalm\Type\Atomic\TNumericString;
 use Psalm\Type\Atomic\TObject;
+use Psalm\Type\Atomic\TPositiveInt;
 use Psalm\Type\Atomic\TResource;
 use Psalm\Type\Atomic\TScalar;
+use Psalm\Type\Atomic\TScalarClassConstant;
 use Psalm\Type\Atomic\TString;
+use Psalm\Type\Atomic\TTemplateParam;
+use Psalm\Type\Atomic\TTraitString;
+use Psalm\Type\Atomic\TTrue;
+use Psalm\Type\Atomic\TTypeAlias;
 use Psalm\Type\Atomic\TVoid;
+use function reset;
+use function strpos;
+use function strtolower;
+use function substr;
 
-abstract class Atomic
+abstract class Atomic implements TypeNode
 {
     const KEY = 'atomic';
 
@@ -38,31 +78,42 @@ abstract class Atomic
      *
      * @var bool
      */
-    protected $checked = false;
+    public $checked = false;
 
     /**
      * Whether or not the type comes from a docblock
      *
      * @var bool
      */
-    protected $from_docblock = false;
+    public $from_docblock = false;
+
+    /**
+     * @var ?int
+     */
+    public $offset_start;
+
+    /**
+     * @var ?int
+     */
+    public $offset_end;
 
     /**
      * @param  string $value
+     * @param  array{int,int}|null   $php_version
+     * @param  array<string, array<string, array{Union}>> $template_type_map
+     * @param  array<string, TypeAlias> $type_aliases
      *
      * @return Atomic
      */
-    public static function create($value)
-    {
+    public static function create(
+        $value,
+        array $php_version = null,
+        array $template_type_map = [],
+        array $type_aliases = []
+    ) {
         switch ($value) {
-            case 'numeric':
-                return new TNumeric();
-
             case 'int':
                 return new TInt();
-
-            case 'void':
-                return new TVoid();
 
             case 'float':
                 return new TFloat();
@@ -71,111 +122,176 @@ abstract class Atomic
                 return new TString();
 
             case 'bool':
-            case 'true':
                 return new TBool();
 
-            case 'false':
-                return new TFalse();
+            case 'void':
+                if ($php_version === null
+                    || ($php_version[0] > 7)
+                    || ($php_version[0] === 7 && $php_version[1] >= 1)
+                ) {
+                    return new TVoid();
+                }
 
-            case 'empty':
-                return new TEmpty();
+                break;
 
-            case 'scalar':
-                return new TScalar();
+            case 'array-key':
+                return new TArrayKey();
 
-            case 'null':
-                return new TNull();
+            case 'iterable':
+                if ($php_version === null
+                    || ($php_version[0] > 7)
+                    || ($php_version[0] === 7 && $php_version[1] >= 1)
+                ) {
+                    return new TIterable();
+                }
 
-            case 'array':
-                return new TArray([new Union([new TMixed]), new Union([new TMixed])]);
+                break;
+
+            case 'never-return':
+            case 'never-returns':
+            case 'no-return':
+                return new TNever();
 
             case 'object':
-                return new TObject();
+                if ($php_version === null
+                    || ($php_version[0] > 7)
+                    || ($php_version[0] === 7 && $php_version[1] >= 2)
+                ) {
+                    return new TObject();
+                }
 
-            case 'mixed':
-                return new TMixed();
-
-            case 'resource':
-                return new TResource();
+                break;
 
             case 'callable':
                 return new TCallable();
 
+            case 'array':
+            case 'associative-array':
+                return new TArray([new Union([new TArrayKey]), new Union([new TMixed])]);
+
+            case 'non-empty-array':
+                return new TNonEmptyArray([new Union([new TArrayKey]), new Union([new TMixed])]);
+
+            case 'callable-array':
+                return new Type\Atomic\TCallableArray([new Union([new TArrayKey]), new Union([new TMixed])]);
+
+            case 'list':
+                return new TList(Type::getMixed());
+
+            case 'non-empty-list':
+                return new TNonEmptyList(Type::getMixed());
+
+            case 'non-empty-string':
+                return new Type\Atomic\TNonEmptyString();
+
+            case 'lowercase-string':
+                return new Type\Atomic\TLowercaseString();
+
+            case 'non-empty-lowercase-string':
+                return new Type\Atomic\TNonEmptyLowercaseString();
+
+            case 'resource':
+                return $php_version !== null ? new TNamedObject($value) : new TResource();
+
+            case 'resource (closed)':
+            case 'closed-resource':
+                return new Type\Atomic\TClosedResource();
+
+            case 'positive-int':
+                return new TPositiveInt();
+
+            case 'numeric':
+                return $php_version !== null ? new TNamedObject($value) : new TNumeric();
+
+            case 'true':
+                return $php_version !== null ? new TNamedObject($value) : new TTrue();
+
+            case 'false':
+                return $php_version !== null ? new TNamedObject($value) : new TFalse();
+
+            case 'empty':
+                return $php_version !== null ? new TNamedObject($value) : new TEmpty();
+
+            case 'scalar':
+                return $php_version !== null ? new TNamedObject($value) : new TScalar();
+
+            case 'null':
+                return $php_version !== null ? new TNamedObject($value) : new TNull();
+
+            case 'mixed':
+                return $php_version !== null ? new TNamedObject($value) : new TMixed();
+
+            case 'callable-object':
+                return new TCallableObject();
+
+            case 'class-string':
+            case 'interface-string':
+                return new TClassString();
+
+            case 'trait-string':
+                return new TTraitString();
+
+            case 'callable-string':
+                return new TCallableString();
+
             case 'numeric-string':
                 return new TNumericString();
 
-            default:
-                return new TNamedObject($value);
-        }
-    }
+            case 'html-escaped-string':
+                return new THtmlEscapedString();
 
-    /**
-     * @param   Union        $parent
-     *
-     * @return  bool
-     */
-    public function isIn(ProjectChecker $project_checker, Union $parent)
-    {
-        if ($parent->isMixed()) {
-            return true;
+            case 'false-y':
+                return new TAssertionFalsy();
+
+            case '$this':
+                return new TNamedObject('static');
         }
 
-        if ($parent->hasType('object') &&
-            $this instanceof TNamedObject &&
-            ClassLikeChecker::classOrInterfaceExists($project_checker, $this->value)
-        ) {
-            return true;
+        if (strpos($value, '-') && substr($value, 0, 4) !== 'OCI-') {
+            throw new \Psalm\Exception\TypeParseTreeException('Unrecognized type ' . $value);
         }
 
-        if ($parent->hasType('numeric') && $this->isNumericType()) {
-            return true;
+        if (is_numeric($value[0])) {
+            throw new \Psalm\Exception\TypeParseTreeException('First character of type cannot be numeric');
         }
 
-        if ($parent->hasType('array') && $this instanceof ObjectLike) {
-            return true;
+        if (isset($template_type_map[$value])) {
+            $first_class = array_keys($template_type_map[$value])[0];
+
+            return new TTemplateParam(
+                $value,
+                $template_type_map[$value][$first_class][0],
+                $first_class
+            );
         }
 
-        if ($this instanceof TFalse && $parent->hasType('bool')) {
-            // this is fine
-            return true;
-        }
+        if (isset($type_aliases[$value])) {
+            $type_alias = $type_aliases[$value];
 
-        if ($parent->hasType($this->getKey())) {
-            return true;
-        }
-
-        // last check to see if class is subclass
-        if ($this instanceof TNamedObject && ClassChecker::classExists($project_checker, $this->value)) {
-            $this_is_subclass = false;
-
-            foreach ($parent->types as $parent_type) {
-                if ($parent_type instanceof TNamedObject &&
-                    ClassChecker::classExtendsOrImplements($project_checker, $this->value, $parent_type->value)
-                ) {
-                    $this_is_subclass = true;
-                    break;
-                }
+            if ($type_alias instanceof TypeAlias\LinkableTypeAlias) {
+                return new TTypeAlias($type_alias->declaring_fq_classlike_name, $type_alias->alias_name);
             }
 
-            if ($this_is_subclass) {
-                return true;
-            }
+            throw new \UnexpectedValueException('This should never happen');
         }
 
-        return false;
+        return new TNamedObject($value);
     }
 
     /**
      * @return string
      */
-    abstract public function getKey();
+    abstract public function getKey(bool $include_extra = true);
 
     /**
      * @return bool
      */
     public function isNumericType()
     {
-        return $this instanceof TInt || $this instanceof TFloat || $this instanceof TNumericString;
+        return $this instanceof TInt
+            || $this instanceof TFloat
+            || $this instanceof TNumericString
+            || $this instanceof TNumeric;
     }
 
     /**
@@ -183,139 +299,358 @@ abstract class Atomic
      */
     public function isObjectType()
     {
-        return $this instanceof TObject || $this instanceof TNamedObject;
+        return $this instanceof TObject
+            || $this instanceof TNamedObject
+            || ($this instanceof TTemplateParam
+                && $this->as->hasObjectType());
     }
 
     /**
-     * @param  StatementsSource $source
-     * @param  CodeLocation     $code_location
-     * @param  array<string>    $suppressed_issues
-     * @param  array<string, bool> $phantom_classes
-     * @param  bool             $inferred
-     *
-     * @return false|null
-     */
-    public function check(
-        StatementsSource $source,
-        CodeLocation $code_location,
-        array $suppressed_issues,
-        array $phantom_classes = [],
-        $inferred = true
-    ) {
-        if ($this->checked) {
-            return;
-        }
-
-        if ($this instanceof TNamedObject &&
-            !isset($phantom_classes[strtolower($this->value)]) &&
-            ClassLikeChecker::checkFullyQualifiedClassLikeName(
-                $source->getFileChecker()->project_checker,
-                $this->value,
-                $code_location,
-                $suppressed_issues,
-                $inferred
-            ) === false
-        ) {
-            return false;
-        }
-
-        if ($this instanceof TResource && !$this->from_docblock) {
-            if (IssueBuffer::accepts(
-                new ReservedWord(
-                    '\'resource\' is a reserved word',
-                    $code_location
-                ),
-                $source->getSuppressedIssues()
-            )) {
-                // fall through
-            }
-        }
-
-        if ($this instanceof Type\Atomic\TArray || $this instanceof Type\Atomic\TGenericObject) {
-            foreach ($this->type_params as $type_param) {
-                $type_param->check($source, $code_location, $suppressed_issues, $phantom_classes, $inferred);
-            }
-        }
-
-        $this->checked = true;
-    }
-
-    /**
-     * @param  ProjectChecker $project_checker
-     * @param  string $referencing_file_path
-     * @param  array<string, mixed> $phantom_classes
-     *
-     * @return void
-     */
-    public function queueClassLikesForScanning(
-        ProjectChecker $project_checker,
-        $referencing_file_path = null,
-        array $phantom_classes = []
-    ) {
-        if ($this instanceof TNamedObject && !isset($phantom_classes[strtolower($this->value)])) {
-            $project_checker->queueClassLikeForScanning($this->value, $referencing_file_path);
-
-            return;
-        }
-
-        if ($this instanceof Type\Atomic\TArray || $this instanceof Type\Atomic\TGenericObject) {
-            foreach ($this->type_params as $type_param) {
-                $type_param->queueClassLikesForScanning(
-                    $project_checker,
-                    $referencing_file_path,
-                    $phantom_classes
-                );
-            }
-        }
-    }
-
-    /**
-     * @param  Atomic $other
-     *
      * @return bool
      */
-    public function shallowEquals(Atomic $other)
+    public function isNamedObjectType()
     {
-        return $this->getKey() === $other->getKey();
+        return $this instanceof TNamedObject
+            || ($this instanceof TTemplateParam
+                && ($this->as->hasNamedObjectType()
+                    || array_filter(
+                        $this->extra_types ?: [],
+                        function ($extra_type) {
+                            return $extra_type->isNamedObjectType();
+                        }
+                    )
+                )
+            );
     }
 
     /**
-     * @return string
+     * @return bool
      */
+    public function isCallableType()
+    {
+        return $this instanceof TCallable
+            || $this instanceof TCallableObject
+            || $this instanceof TCallableString
+            || $this instanceof TCallableArray
+            || $this instanceof TCallableList
+            || $this instanceof TCallableObjectLikeArray;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isIterable(Codebase $codebase)
+    {
+        return $this instanceof TIterable
+            || $this->hasTraversableInterface($codebase)
+            || $this instanceof TArray
+            || $this instanceof ObjectLike
+            || $this instanceof TList;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isCountable(Codebase $codebase)
+    {
+        return $this->hasCountableInterface($codebase)
+            || $this instanceof TArray
+            || $this instanceof ObjectLike
+            || $this instanceof TList;
+    }
+
+    /**
+     * @return bool
+     */
+    public function hasTraversableInterface(Codebase $codebase)
+    {
+        return $this instanceof TNamedObject
+            && (
+                strtolower($this->value) === 'traversable'
+                || ($codebase->classOrInterfaceExists($this->value)
+                    && ($codebase->classExtendsOrImplements(
+                        $this->value,
+                        'Traversable'
+                    ) || $codebase->interfaceExtends(
+                        $this->value,
+                        'Traversable'
+                    )))
+                || (
+                    $this->extra_types
+                    && array_filter(
+                        $this->extra_types,
+                        function (Atomic $a) use ($codebase) : bool {
+                            return $a->hasTraversableInterface($codebase);
+                        }
+                    )
+                )
+            );
+    }
+
+    /**
+     * @return bool
+     */
+    public function hasCountableInterface(Codebase $codebase)
+    {
+        return $this instanceof TNamedObject
+            && (
+                strtolower($this->value) === 'countable'
+                || ($codebase->classOrInterfaceExists($this->value)
+                    && ($codebase->classExtendsOrImplements(
+                        $this->value,
+                        'Countable'
+                    ) || $codebase->interfaceExtends(
+                        $this->value,
+                        'Countable'
+                    )))
+                || (
+                    $this->extra_types
+                    && array_filter(
+                        $this->extra_types,
+                        function (Atomic $a) use ($codebase) : bool {
+                            return $a->hasCountableInterface($codebase);
+                        }
+                    )
+                )
+            );
+    }
+
+    /**
+     * @return bool
+     */
+    public function isArrayAccessibleWithStringKey(Codebase $codebase)
+    {
+        return $this instanceof TArray
+            || $this instanceof ObjectLike
+            || $this instanceof TList
+            || $this instanceof Atomic\TClassStringMap
+            || $this->hasArrayAccessInterface($codebase)
+            || ($this instanceof TNamedObject && $this->value === 'SimpleXMLElement');
+    }
+
+    /**
+     * @return bool
+     */
+    public function isArrayAccessibleWithIntOrStringKey(Codebase $codebase)
+    {
+        return $this instanceof TString
+            || $this->isArrayAccessibleWithStringKey($codebase);
+    }
+
+    /**
+     * @return bool
+     */
+    public function hasArrayAccessInterface(Codebase $codebase)
+    {
+        return $this instanceof TNamedObject
+            && (
+                strtolower($this->value) === 'arrayaccess'
+                || ($codebase->classOrInterfaceExists($this->value)
+                    && ($codebase->classExtendsOrImplements(
+                        $this->value,
+                        'ArrayAccess'
+                    ) || $codebase->interfaceExtends(
+                        $this->value,
+                        'ArrayAccess'
+                    )))
+                || (
+                    $this->extra_types
+                    && array_filter(
+                        $this->extra_types,
+                        /** @param Atomic $a */
+                        function (Atomic $a) use ($codebase) : bool {
+                            return $a->hasArrayAccessInterface($codebase);
+                        }
+                    )
+                )
+            );
+    }
+
+    public function getChildNodes() : array
+    {
+        return [];
+    }
+
+    public function replaceClassLike(string $old, string $new) : void
+    {
+        if ($this instanceof TNamedObject) {
+            if (strtolower($this->value) === $old) {
+                $this->value = $new;
+            }
+        }
+
+        if ($this instanceof TNamedObject
+            || $this instanceof TIterable
+            || $this instanceof TTemplateParam
+        ) {
+            if ($this->extra_types) {
+                foreach ($this->extra_types as $extra_type) {
+                    $extra_type->replaceClassLike($old, $new);
+                }
+            }
+        }
+
+        if ($this instanceof TScalarClassConstant) {
+            if (strtolower($this->fq_classlike_name) === $old) {
+                $this->fq_classlike_name = $new;
+            }
+        }
+
+        if ($this instanceof TClassString && $this->as !== 'object') {
+            if (strtolower($this->as) === $old) {
+                $this->as = $new;
+            }
+        }
+
+        if ($this instanceof TTemplateParam) {
+            $this->as->replaceClassLike($old, $new);
+        }
+
+        if ($this instanceof TLiteralClassString) {
+            if (strtolower($this->value) === $old) {
+                $this->value = $new;
+            }
+        }
+
+        if ($this instanceof Type\Atomic\TArray
+            || $this instanceof Type\Atomic\TGenericObject
+            || $this instanceof Type\Atomic\TIterable
+        ) {
+            foreach ($this->type_params as $type_param) {
+                $type_param->replaceClassLike($old, $new);
+            }
+        }
+
+        if ($this instanceof Type\Atomic\ObjectLike) {
+            foreach ($this->properties as $property_type) {
+                $property_type->replaceClassLike($old, $new);
+            }
+        }
+
+        if ($this instanceof Type\Atomic\TFn
+            || $this instanceof Type\Atomic\TCallable
+        ) {
+            if ($this->params) {
+                foreach ($this->params as $param) {
+                    if ($param->type) {
+                        $param->type->replaceClassLike($old, $new);
+                    }
+                }
+            }
+
+            if ($this->return_type) {
+                $this->return_type->replaceClassLike($old, $new);
+            }
+        }
+    }
+
     public function __toString()
     {
         return '';
     }
 
+    public function __clone()
+    {
+        if ($this instanceof TNamedObject
+            || $this instanceof TTemplateParam
+            || $this instanceof TIterable
+            || $this instanceof Type\Atomic\TObjectWithProperties
+        ) {
+            if ($this->extra_types) {
+                foreach ($this->extra_types as &$type) {
+                    $type = clone $type;
+                }
+            }
+        }
+
+        if ($this instanceof TTemplateParam) {
+            $this->as = clone $this->as;
+        }
+    }
+
     /**
-     * @param  array<string> $aliased_classes
-     * @param  string|null   $this_class
-     * @param  bool          $use_phpdoc_format
+     * @return string
+     */
+    public function getId(bool $nested = false)
+    {
+        return $this->__toString();
+    }
+
+    /**
+     * @return string
+     */
+    public function getAssertionString()
+    {
+        return $this->getId();
+    }
+
+    /**
+     * @param  array<string, string> $aliased_classes
      *
      * @return string
      */
-    public function toNamespacedString(array $aliased_classes, $this_class, $use_phpdoc_format)
-    {
+    public function toNamespacedString(
+        ?string $namespace,
+        array $aliased_classes,
+        ?string $this_class,
+        bool $use_phpdoc_format
+    ) {
         return $this->getKey();
     }
 
     /**
-     * @return void
+     * @param  string|null   $namespace
+     * @param  array<string, string> $aliased_classes
+     * @param  string|null   $this_class
+     * @param  int           $php_major_version
+     * @param  int           $php_minor_version
+     *
+     * @return null|string
      */
-    public function setFromDocblock()
-    {
-        $this->from_docblock = true;
+    abstract public function toPhpString(
+        $namespace,
+        array $aliased_classes,
+        $this_class,
+        $php_major_version,
+        $php_minor_version
+    );
+
+    /**
+     * @return bool
+     */
+    abstract public function canBeFullyExpressedInPhp();
+
+    public function replaceTemplateTypesWithStandins(
+        TemplateResult $template_result,
+        Codebase $codebase = null,
+        ?StatementsAnalyzer $statements_analyzer = null,
+        Type\Atomic $input_type = null,
+        ?int $input_arg_offset = null,
+        ?string $calling_class = null,
+        ?string $calling_function = null,
+        bool $replace = true,
+        bool $add_upper_bound = false,
+        int $depth = 0
+    ) : self {
+        return $this;
+    }
+
+    public function replaceTemplateTypesWithArgTypes(
+        TemplateResult $template_result,
+        ?Codebase $codebase
+    ) : void {
+        // do nothing
     }
 
     /**
-     * @param  array<string, string>     $template_types
-     * @param  array<string, Type\Union> $generic_params
-     * @param  Type\Atomic|null          $input_type
-     *
-     * @return void
+     * @return bool
      */
-    public function replaceTemplateTypes(array $template_types, array &$generic_params, Type\Atomic $input_type = null)
+    public function equals(Atomic $other_type)
     {
-        // do nothing
+        if (get_class($other_type) !== get_class($this)) {
+            return false;
+        }
+
+        return true;
     }
 }

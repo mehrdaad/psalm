@@ -1,6 +1,7 @@
 <?php
 namespace Psalm\Config;
 
+use function in_array;
 use SimpleXMLElement;
 
 class ErrorLevelFileFilter extends FileFilter
@@ -12,10 +13,10 @@ class ErrorLevelFileFilter extends FileFilter
 
     /**
      * @param  SimpleXMLElement $e
-     * @param  bool             $inclusive
      * @param  string           $base_dir
+     * @param  bool             $inclusive
      *
-     * @return self
+     * @return static
      */
     public static function loadFromXMLElement(
         SimpleXMLElement $e,
@@ -28,7 +29,7 @@ class ErrorLevelFileFilter extends FileFilter
             $filter->error_level = (string) $e['type'];
 
             if (!in_array($filter->error_level, \Psalm\Config::$ERROR_LEVELS, true)) {
-                throw new \Psalm\Exception\ConfigException('Unexepected error level ' . $filter->error_level);
+                throw new \Psalm\Exception\ConfigException('Unexpected error level ' . $filter->error_level);
             }
         } else {
             throw new \Psalm\Exception\ConfigException('<type> element expects a level');

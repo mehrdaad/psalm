@@ -1,45 +1,28 @@
-<h1><a href="https://getpsalm.org"><img src="PsalmLogo.png" height="64" alt="logo" /></a></h1>
+<h1>Psalm</h1>
 
 [![Packagist](https://img.shields.io/packagist/v/vimeo/psalm.svg)](https://packagist.org/packages/vimeo/psalm)
+[![Packagist](https://img.shields.io/packagist/dt/vimeo/psalm.svg)](https://packagist.org/packages/vimeo/psalm)
 [![Travis CI](https://img.shields.io/travis/vimeo/psalm/master.svg)](https://travis-ci.org/vimeo/psalm/branches)
+[![Coverage Status](https://coveralls.io/repos/github/vimeo/psalm/badge.svg)](https://coveralls.io/github/vimeo/psalm)
+![Psalm coverage](https://shepherd.dev/github/vimeo/psalm/coverage.svg?)
 
-Psalm is a static analysis tool for finding errors in PHP applications.
 
- - **v0.3.x** supports checking PHP 5.4 - 7.1 code, and requires **PHP 5.6+** to run.
- - **v0.2.x** supports checking PHP 5.4 - 7.0 code and requires **PHP 5.4+** to run.
+Psalm is a static analysis tool for finding errors in PHP applications, built on top of [PHP Parser](https://github.com/nikic/php-parser).
 
-Check out the [wiki](https://github.com/vimeo/psalm/wiki) or [try a live demo](https://getpsalm.org/)!
+It's able to find a [large number of issues](https://github.com/vimeo/psalm/blob/master/docs/running_psalm/issues.md), but it can also be configured to only care about a small subset of those.
 
-## Quickstart Guide
+[Try a live demo](https://psalm.dev/), or install it in your project by following the Quickstart Guide below.
 
-Install via [Composer](https://getcomposer.org/):
+## Psalm documentation
 
-```bash
-composer require --dev vimeo/psalm
-```
+Documentation is available on [Psalm’s website](https://psalm.dev/docs), generated from the [docs](https://github.com/vimeo/psalm/blob/master/docs) folder.
 
-Add a config:
+To get started, check out the [installation guide](docs/running_psalm/installation.md)
 
-```bash
-./vendor/bin/psalm --init
-```
+## Interested in contributing?
 
-Then run Psalm:
-
-```bash
-./vendor/bin/psalm
-```
-
-The config created above will show you all issues in your code, but will emit `INFO` issues (as opposed to `ERROR`) for certain common trivial code problems. If you want a more lenient config you can specify the level with 
-
-```bash
-./vendor/bin/psalm --init [source_dir] [level]
-```
-
-You can also [learn how to suppress certain issues](https://github.com/vimeo/psalm/wiki/Dealing-with-code-issues).
+Have a look at [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Acknowledgements
 
 The engineering team [@vimeo](https://github.com/vimeo) for encouragement and patience, especially [@nbeliard](https://github.com/nbeliard), [@erunion](https://github.com/erunion) and [@nickyr](https://github.com/nickyr).
-
-Thanks also to [@nikic](https://github.com/nikic) for creating the excellent [php-parser](https://github.com/nikic/php-parser), on top of which Psalm is built.

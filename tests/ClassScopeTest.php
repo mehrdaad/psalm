@@ -3,23 +3,23 @@ namespace Psalm\Tests;
 
 class ClassScopeTest extends TestCase
 {
-    use Traits\FileCheckerInvalidCodeParseTestTrait;
-    use Traits\FileCheckerValidCodeParseTestTrait;
+    use Traits\InvalidCodeAnalysisTestTrait;
+    use Traits\ValidCodeAnalysisTestTrait;
 
     /**
-     * @return array
+     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
      */
-    public function providerFileCheckerValidCodeParse()
+    public function providerValidCodeParse()
     {
         return [
             'accessiblePrivateMethodFromSubclass' => [
                 '<?php
                     class A {
-                        private function fooFoo() : void {
+                        private function fooFoo(): void {
 
                         }
 
-                        private function barBar() : void {
+                        private function barBar(): void {
                             $this->fooFoo();
                         }
                     }',
@@ -27,12 +27,12 @@ class ClassScopeTest extends TestCase
             'accessibleProtectedMethodFromSubclass' => [
                 '<?php
                     class A {
-                        protected function fooFoo() : void {
+                        protected function fooFoo(): void {
                         }
                     }
 
                     class B extends A {
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             $this->fooFoo();
                         }
                     }',
@@ -40,14 +40,14 @@ class ClassScopeTest extends TestCase
             'accessibleProtectedMethodFromOtherSubclass' => [
                 '<?php
                     class A {
-                        protected function fooFoo() : void {
+                        protected function fooFoo(): void {
                         }
                     }
 
                     class B extends A { }
 
                     class C extends A {
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             (new B)->fooFoo();
                         }
                     }',
@@ -60,7 +60,7 @@ class ClassScopeTest extends TestCase
                     }
 
                     class B extends A {
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             echo $this->fooFoo;
                         }
                     }',
@@ -77,7 +77,7 @@ class ClassScopeTest extends TestCase
                     class C extends B { }
 
                     class D extends C {
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             echo $this->fooFoo;
                         }
                     }',
@@ -93,7 +93,7 @@ class ClassScopeTest extends TestCase
                     }
 
                     class C extends A {
-                        public function fooFoo() : void {
+                        public function fooFoo(): void {
                             $b = new B();
                             $b->fooFoo = "hello";
                         }
@@ -105,13 +105,13 @@ class ClassScopeTest extends TestCase
                         /** @var string */
                         protected static $fooFoo = "";
 
-                        public function barBar() : void {
+                        public function barBar(): void {
                             echo self::$fooFoo;
                         }
                     }
 
                     class B extends A {
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             echo A::$fooFoo;
                         }
                     }',
@@ -119,32 +119,32 @@ class ClassScopeTest extends TestCase
             'definedPrivateMethod' => [
                 '<?php
                     class A {
-                        public function foo() : void {
+                        public function foo(): void {
                             if ($this instanceof B) {
                                 $this->boop();
                             }
                         }
 
-                        private function boop() : void {}
+                        private function boop(): void {}
                     }
 
                     class B extends A {
-                        private function boop() : void {}
+                        private function boop(): void {}
                     }',
             ],
         ];
     }
 
     /**
-     * @return array
+     * @return iterable<string,array{string,error_message:string,2?:string[],3?:bool,4?:string}>
      */
-    public function providerFileCheckerInvalidCodeParse()
+    public function providerInvalidCodeParse()
     {
         return [
             'inaccessiblePrivateMethod' => [
                 '<?php
                     class A {
-                        private function fooFoo() : void {
+                        private function fooFoo(): void {
 
                         }
                     }
@@ -155,7 +155,7 @@ class ClassScopeTest extends TestCase
             'inaccessibleProtectMethod' => [
                 '<?php
                     class A {
-                        protected function fooFoo() : void {
+                        protected function fooFoo(): void {
 
                         }
                     }
@@ -166,22 +166,22 @@ class ClassScopeTest extends TestCase
             'inaccessiblePrivateMethodFromSubclass' => [
                 '<?php
                     class A {
-                        private function fooFoo() : void {
+                        private function fooFoo(): void {
 
                         }
                     }
 
                     class B extends A {
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             $this->fooFoo();
                         }
                     }',
-                'error_message' => 'InaccessibleMethod',
+                'error_message' => 'UndefinedMethod',
             ],
             'inaccessibleProtectredMethodFromOtherSubclass' => [
                 '<?php
                     trait T {
-                        protected function fooFoo() : void {
+                        protected function fooFoo(): void {
                         }
                     }
 
@@ -192,7 +192,7 @@ class ClassScopeTest extends TestCase
                     class C {
                         use T;
 
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             (new B)->fooFoo();
                         }
                     }',
@@ -226,7 +226,7 @@ class ClassScopeTest extends TestCase
                     }
 
                     class B extends A {
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             echo $this->fooFoo;
                         }
                     }',
@@ -260,13 +260,13 @@ class ClassScopeTest extends TestCase
                     }
 
                     class B extends A {
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             echo A::$fooFoo;
                         }
                     }',
                 'error_message' => 'InaccessibleProperty',
             ],
-            'privateConstructorInheritance' => [
+            'privateConstructorInheritanceNoCall' => [
                 '<?php
                     class A {
                         private function __construct() { }
@@ -286,6 +286,20 @@ class ClassScopeTest extends TestCase
                         }
                     }',
                 'error_message' => 'InaccessibleMethod',
+            ],
+            'noSelfInFunctionConstant' => [
+                '<?php
+                    function foo() : void {
+                        echo self::SOMETHING;
+                    }',
+                'error_message' => 'NonStaticSelfCall',
+            ],
+            'noSelfInFunctionCall' => [
+                '<?php
+                    function foo() : void {
+                        echo self::bar();
+                    }',
+                'error_message' => 'NonStaticSelfCall',
             ],
         ];
     }

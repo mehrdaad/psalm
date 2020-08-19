@@ -3,18 +3,18 @@ namespace Psalm\Tests;
 
 class Php70Test extends TestCase
 {
-    use Traits\FileCheckerInvalidCodeParseTestTrait;
-    use Traits\FileCheckerValidCodeParseTestTrait;
+    use Traits\InvalidCodeAnalysisTestTrait;
+    use Traits\ValidCodeAnalysisTestTrait;
 
     /**
-     * @return array
+     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
      */
-    public function providerFileCheckerValidCodeParse()
+    public function providerValidCodeParse()
     {
         return [
             'functionTypeHints' => [
                 '<?php
-                    function indexof(string $haystack, string $needle) : int
+                    function indexof(string $haystack, string $needle): int
                     {
                         $pos = strpos($haystack, $needle);
 
@@ -33,7 +33,7 @@ class Php70Test extends TestCase
             'methodTypeHints' => [
                 '<?php
                     class Foo {
-                        public static function indexof(string $haystack, string $needle) : int
+                        public static function indexof(string $haystack, string $needle): int
                         {
                             $pos = strpos($haystack, $needle);
 
@@ -55,7 +55,7 @@ class Php70Test extends TestCase
                     $arr = ["hello", "goodbye"];
                     $a = $arr[rand(0, 10)] ?? null;',
                 'assertions' => [
-                    '$a' => 'string|null',
+                    '$a' => 'null|string',
                 ],
             ],
             'nullCoalesceWithNullableOnLeft' => [
@@ -116,6 +116,7 @@ class Php70Test extends TestCase
 
                     $app = new Application;
                     $app->setLogger(new class implements Logger {
+                        /** @return void */
                         public function log(string $msg) {
                             echo $msg;
                         }
@@ -124,21 +125,49 @@ class Php70Test extends TestCase
             'anonymousClassFunctionReturnType' => [
                 '<?php
                     $class = new class {
-                        public function f() : int {
+                        public function f(): int {
                             return 42;
                         }
                     };
 
-                    function g(int $i) : int {
+                    function g(int $i): int {
                         return $i;
                     }
 
                     $x = g($class->f());',
             ],
-
             'anonymousClassStatement' => [
                 '<?php
                     new class {};',
+            ],
+            'anonymousClassTwoFunctions' => [
+                '<?php
+                    interface I {}
+
+                    class A
+                    {
+                        /** @var ?I */
+                        protected $i;
+
+                        public function foo(): void
+                        {
+                            $this->i = new class implements I {};
+                        }
+
+                        public function foo2(): void {} // commenting this line out fixes
+                    }',
+            ],
+            'anonymousClassExtendsWithThis' => [
+                '<?php
+                    class A {
+                        public function foo() : void {}
+                    }
+                    $class = new class extends A {
+                        public function f(): int {
+                            $this->foo();
+                            return 42;
+                        }
+                    };',
             ],
             'returnAnonymousClass' => [
                 '<?php
@@ -155,70 +184,6 @@ class Php70Test extends TestCase
                             return new class {};
                         }
                     }',
-            ],
-            'generatorWithReturn' => [
-                '<?php
-                    /**
-                     * @return Generator<int,int>
-                     * @psalm-generator-return string
-                     */
-                    function fooFoo(int $i) : Generator {
-                        if ($i === 1) {
-                            return "bash";
-                        }
-
-                        yield 1;
-                    }',
-            ],
-            'generatorDelegation' => [
-                '<?php
-                    /**
-                     * @return Generator<int,int>
-                     * @psalm-generator-return int
-                     */
-                    function count_to_ten() : Generator {
-                        yield 1;
-                        yield 2;
-                        yield from [3, 4];
-                        yield from new ArrayIterator([5, 6]);
-                        yield from seven_eight();
-                        return yield from nine_ten();
-                    }
-
-                    /**
-                     * @return Generator<int,int>
-                     */
-                    function seven_eight() : Generator {
-                        yield 7;
-                        yield from eight();
-                    }
-
-                    /**
-                     * @return Generator<int,int>
-                     */
-                    function eight() : Generator {
-                        yield 8;
-                    }
-
-                    /**
-                     * @return Generator<int,int>
-                     * @psalm-generator-return int
-                     */
-                    function nine_ten() : Generator {
-                        yield 9;
-                        return 10;
-                    }
-
-                    $gen = count_to_ten();
-                    foreach ($gen as $num) {
-                        echo "$num ";
-                    }
-                    $gen2 = $gen->getReturn();',
-                'assertions' => [
-                    '$gen' => 'Generator<int, int>',
-                    '$gen2' => 'mixed',
-                ],
-                'error_levels' => ['MixedAssignment'],
             ],
             'multipleUse' => [
                 '<?php
@@ -246,9 +211,9 @@ class Php70Test extends TestCase
     }
 
     /**
-     * @return array
+     * @return iterable<string,array{string,error_message:string,2?:string[],3?:bool,4?:string}>
      */
-    public function providerFileCheckerInvalidCodeParse()
+    public function providerInvalidCodeParse()
     {
         return [
             'anonymousClassWithBadStatement' => [
@@ -263,11 +228,11 @@ class Php70Test extends TestCase
             'anonymousClassWithInvalidFunctionReturnType' => [
                 '<?php
                     $foo = new class {
-                        public function a() : string {
+                        public function a(): string {
                             return 5;
                         }
                     };',
-                'error_message' => 'InvalidReturnType',
+                'error_message' => 'InvalidReturnStatement',
             ],
         ];
     }

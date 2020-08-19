@@ -1,6 +1,8 @@
 <?php
 namespace Psalm\Issue;
 
-class ImplicitToStringCast extends CodeError
+class ImplicitToStringCast extends CodeIssue
 {
+    const ERROR_LEVEL = 4;
+    const SHORTCODE = 60;
 }

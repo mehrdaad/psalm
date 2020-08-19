@@ -3,41 +3,14 @@ namespace Psalm\Tests;
 
 class Php55Test extends TestCase
 {
-    use Traits\FileCheckerValidCodeParseTestTrait;
+    use Traits\ValidCodeAnalysisTestTrait;
 
     /**
-     * @return array
+     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
      */
-    public function providerFileCheckerValidCodeParse()
+    public function providerValidCodeParse()
     {
         return [
-            'generator' => [
-                '<?php
-                    /**
-                     * @param  int  $start
-                     * @param  int  $limit
-                     * @param  int  $step
-                     * @return Generator<int>
-                     */
-                    function xrange($start, $limit, $step = 1) {
-                        for ($i = $start; $i <= $limit; $i += $step) {
-                            yield $i;
-                        }
-                    }
-
-                    $a = null;
-
-                    /*
-                     * Note that an array is never created or returned,
-                     * which saves memory.
-                     */
-                    foreach (xrange(1, 9, 2) as $number) {
-                        $a = $number;
-                    }',
-                'assertions' => [
-                    '$a' => 'null|int',
-                ],
-            ],
             'finally' => [
                 '<?php
                     try {
@@ -73,7 +46,7 @@ class Php55Test extends TestCase
 
                     $a = ClassName::class;',
                 'assertions' => [
-                    '$a' => 'string',
+                    '$a' => 'class-string',
                 ],
             ],
         ];

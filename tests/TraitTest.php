@@ -1,28 +1,30 @@
 <?php
 namespace Psalm\Tests;
 
+use const DIRECTORY_SEPARATOR;
+
 class TraitTest extends TestCase
 {
-    use Traits\FileCheckerInvalidCodeParseTestTrait;
-    use Traits\FileCheckerValidCodeParseTestTrait;
+    use Traits\InvalidCodeAnalysisTestTrait;
+    use Traits\ValidCodeAnalysisTestTrait;
 
     /**
-     * @return array
+     * @return iterable<string,array{string,assertions?:array<string,string>,error_levels?:string[]}>
      */
-    public function providerFileCheckerValidCodeParse()
+    public function providerValidCodeParse()
     {
         return [
             'accessiblePrivateMethodFromTrait' => [
                 '<?php
                     trait T {
-                        private function fooFoo() : void {
+                        private function fooFoo(): void {
                         }
                     }
 
                     class B {
                         use T;
 
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             $this->fooFoo();
                         }
                     }',
@@ -30,14 +32,14 @@ class TraitTest extends TestCase
             'accessibleProtectedMethodFromTrait' => [
                 '<?php
                     trait T {
-                        protected function fooFoo() : void {
+                        protected function fooFoo(): void {
                         }
                     }
 
                     class B {
                         use T;
 
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             $this->fooFoo();
                         }
                     }',
@@ -45,14 +47,14 @@ class TraitTest extends TestCase
             'accessiblePublicMethodFromTrait' => [
                 '<?php
                     trait T {
-                        public function fooFoo() : void {
+                        public function fooFoo(): void {
                         }
                     }
 
                     class B {
                         use T;
 
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             $this->fooFoo();
                         }
                     }',
@@ -67,7 +69,7 @@ class TraitTest extends TestCase
                     class B {
                         use T;
 
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             echo $this->fooFoo;
                             $this->fooFoo = "hello";
                         }
@@ -83,7 +85,7 @@ class TraitTest extends TestCase
                     class B {
                         use T;
 
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             echo $this->fooFoo;
                             $this->fooFoo = "hello";
                         }
@@ -99,7 +101,7 @@ class TraitTest extends TestCase
                     class B {
                         use T;
 
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             echo $this->fooFoo;
                             $this->fooFoo = "hello";
                         }
@@ -108,7 +110,7 @@ class TraitTest extends TestCase
             'accessibleProtectedMethodFromInheritedTrait' => [
                 '<?php
                     trait T {
-                        protected function fooFoo() : void {
+                        protected function fooFoo(): void {
                         }
                     }
 
@@ -117,7 +119,7 @@ class TraitTest extends TestCase
                     }
 
                     class C extends B {
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             $this->fooFoo();
                         }
                     }',
@@ -125,7 +127,7 @@ class TraitTest extends TestCase
             'accessiblePublicMethodFromInheritedTrait' => [
                 '<?php
                     trait T {
-                        public function fooFoo() : void {
+                        public function fooFoo(): void {
                         }
                     }
 
@@ -134,7 +136,7 @@ class TraitTest extends TestCase
                     }
 
                     class C extends B {
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             $this->fooFoo();
                         }
                     }',
@@ -142,7 +144,7 @@ class TraitTest extends TestCase
             'staticClassMethodFromWithinTrait' => [
                 '<?php
                     trait T {
-                        public function fooFoo() : void {
+                        public function fooFoo(): void {
                             self::barBar();
                         }
                     }
@@ -150,7 +152,7 @@ class TraitTest extends TestCase
                     class B {
                         use T;
 
-                        public static function barBar() : void {
+                        public static function barBar(): void {
 
                         }
                     }',
@@ -158,14 +160,14 @@ class TraitTest extends TestCase
             'redefinedTraitMethodWithoutAlias' => [
                 '<?php
                     trait T {
-                        public function fooFoo() : void {
+                        public function fooFoo(): void {
                         }
                     }
 
                     class B {
                         use T;
 
-                        public function fooFoo(string $a) : void {
+                        public function fooFoo(string $a): void {
                         }
                     }
 
@@ -174,7 +176,7 @@ class TraitTest extends TestCase
             'redefinedTraitMethodWithAlias' => [
                 '<?php
                     trait T {
-                        public function fooFoo() : void {
+                        public function fooFoo(): void {
                         }
                     }
 
@@ -183,7 +185,7 @@ class TraitTest extends TestCase
                             fooFoo as barBar;
                         }
 
-                        public function fooFoo() : void {
+                        public function fooFoo(): void {
                             $this->barBar();
                         }
                     }',
@@ -265,33 +267,113 @@ class TraitTest extends TestCase
             'instanceOfTraitUser' => [
                 '<?php
                     trait T {
-                      public function f() : void {
+                      public function f(): void {
                         if ($this instanceof A) { }
                       }
                     }
 
                     class A {
                       use T;
+                    }
+
+                    class B {
+                      use T;
+                    }',
+            ],
+            'getClassTraitUser' => [
+                '<?php
+                    trait T {
+                        public function f(): void {
+                            if (get_class($this) === B::class) {
+                                $this->foo();
+                            }
+                        }
+                    }
+
+                    class A {
+                        use T;
+                    }
+
+                    class B {
+                        use T;
+
+                        public function foo() : void {}
+                    }',
+            ],
+            'staticClassTraitUser' => [
+                '<?php
+                    trait T {
+                        public function f(): void {
+                            if (static::class === B::class) {
+                                $this->foo();
+                            }
+                        }
+                    }
+
+                    class A {
+                        use T;
+                    }
+
+                    class B {
+                        use T;
+
+                        public function foo() : void {}
+                    }',
+            ],
+            'isAClassTraitUserStringClass' => [
+                '<?php
+                    trait T {
+                        public function f(): void {
+                            if (is_a(static::class, "B")) { }
+                        }
+                    }
+
+                    class A {
+                        use T;
+                    }
+
+                    class B {
+                        use T;
+
+                        public function foo() : void {}
+                    }',
+            ],
+            'isAClassTraitUserClassConstant' => [
+                '<?php
+                    trait T {
+                        public function f(): void {
+                            if (is_a(static::class, "B")) { }
+                        }
+                    }
+
+                    class A {
+                        use T;
+                    }
+
+                    class B {
+                        use T;
+
+                        public function foo() : void {}
                     }',
             ],
             'useTraitInClassWithAbstractMethod' => [
                 '<?php
                     trait T {
-                      abstract public function foo() : void;
+                      abstract public function foo(): void;
                     }
 
                     class A {
-                      public function foo() : void {}
+                      public function foo(): void {}
                     }',
             ],
             'useTraitInSubclassWithAbstractMethod' => [
                 '<?php
                     trait T {
-                      abstract public function foo() : void;
+                      abstract public function foo(): void;
                     }
 
                     abstract class A {
-                      public function foo() : void {}
+                      public function foo(): void {}
                     }
 
                     class B extends A {
@@ -301,30 +383,609 @@ class TraitTest extends TestCase
             'useTraitInSubclassWithAbstractMethodInParent' => [
                 '<?php
                     trait T {
-                      public function foo() : void {}
+                      public function foo(): void {}
                     }
 
                     abstract class A {
-                      abstract public function foo() : void {}
+                      abstract public function foo(): void {}
                     }
 
                     class B extends A {
                       use T;
                     }',
             ],
+            'differentMethodReturnTypes' => [
+                '<?php
+                    trait T {
+                        public static function getSelf(): self {
+                            return new self();
+                        }
+
+                        public static function callGetSelf(): self {
+                            return self::getSelf();
+                        }
+                    }
+
+                    class A {
+                        use T;
+                    }
+
+                    class B {
+                        use T;
+                    }',
+            ],
+            'parentRefInTraitShouldNotFail' => [
+                '<?php
+                    trait T {
+                      public function foo(): void {
+                        parent::foo();
+                      }
+                    }
+                    class A {
+                      public function foo(): void {}
+                    }
+                    class B extends A {
+                      use T;
+                    }',
+            ],
+            'namespacedTraitLookup' => [
+                '<?php
+                    namespace Classes {
+                      use Traits\T;
+
+                      class A {}
+
+                      class B {
+                        use T;
+                      }
+                    }
+
+                    namespace Traits {
+                      use Classes\A;
+
+                      trait T {
+                        public function getA() : A {
+                          return new A;
+                        }
+                      }
+                    }
+
+                    namespace {
+                        $a = (new Classes\B)->getA();
+                    }',
+            ],
+            'useAndMap' => [
+                '<?php
+                    class C
+                    {
+                        use T2;
+
+                        use T1 {
+                            traitFunc as aliasedTraitFunc;
+                        }
+
+                        public static function func(): void
+                        {
+                            static::aliasedTraitFunc();
+                        }
+                    }
+                    trait T1
+                    {
+                        public static function traitFunc(): void {}
+                    }
+                    trait T2 { }',
+            ],
+            'mapAndUse' => [
+                '<?php
+                    class C
+                    {
+                        use T1 {
+                            traitFunc as _func;
+                        }
+                        use T2;
+
+                        public static function func(): void
+                        {
+                            static::_func();
+                        }
+                    }
+                    trait T1
+                    {
+                        public static function traitFunc(): void {}
+                    }
+                    trait T2 { }',
+            ],
+            'moreArgsInDefined' => [
+                '<?php
+                    trait T {
+                        abstract public function foo() : void;
+
+                        public function callFoo() : void {
+                            $this->foo();
+                        }
+                    }
+
+                    class A {
+                        use T;
+
+                        public function foo(string $s = null) : void {
+
+                        }
+                    }',
+            ],
+            'aliasedMethodInternalCallNoReplacement' => [
+                '<?php
+                    trait T {
+                        public function foo() : int {
+                            return $this->bar();
+                        }
+
+                        public function bar() : int {
+                            return 3;
+                        }
+                    }
+
+                    class A {
+                        use T {
+                            bar as bat;
+                        }
+
+                        public function baz() : int {
+                            return $this->bar();
+                        }
+                    }',
+            ],
+            'aliasedMethodInternalCallWithLocalDefinition' => [
+                '<?php
+                    trait T {
+                        public function bar() : int {
+                            return 3;
+                        }
+                    }
+
+                    class A {
+                        use T {
+                            bar as bat;
+                        }
+
+                        public function bar() : string {
+                            return "hello";
+                        }
+
+                        public function baz() : string {
+                            return $this->bar();
+                        }
+                    }',
+            ],
+            'allMethodsReplaced' => [
+                '<?php
+                    trait T {
+                        protected function foo() : void {}
+
+                        public function bat() : void {
+                            $this->foo();
+                        }
+                    }
+
+                    class C {
+                        use T;
+
+                        protected function foo(string $s) : void {}
+
+                        public function bat() : void {
+                            $this->foo("bat");
+                        }
+                    }',
+            ],
+            'aliasedPrivateMethodInternalCallWithLocalDefinition' => [
+                '<?php
+                    trait T1 {
+                        use T2;
+
+                        private function foo() : int {
+                            return $this->bar();
+                        }
+                    }
+
+                    trait T2 {
+                        private function bar() : int {
+                            return 3;
+                        }
+                    }
+
+                    class A {
+                        use T1;
+
+                        private function baz() : int {
+                            return $this->bar();
+                        }
+                    }',
+            ],
+            'traitClassConst' => [
+                '<?php
+                    trait A {
+                        public function foo(): string {
+                            return B::class;
+                        }
+                    }
+
+                    trait B {}
+
+                    class C {
+                        use A;
+                    }',
+            ],
+            'noRedundantConditionForTraitStatic' => [
+                '<?php
+                    trait Foo {
+                        public function bar() : array {
+                            $type = static::class;
+                            $r = new \ReflectionClass($type);
+                            $values = $r->getConstants();
+                            $callback =
+                                /** @param mixed $v */
+                                function ($v) : bool {
+                                    return \is_int($v) || \is_string($v);
+                                };
+
+                            if (is_a($type, \Bat::class, true)) {
+                                $callback =
+                                    /** @param mixed $v */
+                                    function ($v) : bool {
+                                        return \is_int($v) && 0 === ($v & $v - 1) && $v > 0;
+                                    };
+                            }
+
+                            return array_filter($values, $callback);
+                        }
+                    }
+
+                    class Bar {
+                        use Foo;
+                    }
+
+                    class Bat {
+                        use Foo;
+                    }',
+            ],
+            'nonMemoizedAssertions' => [
+                '<?php
+                    trait T {
+                        public function compare(O $other) : void {
+                            if ($other instanceof self) {
+                                if ($other->value === $this->value) {}
+                            }
+                        }
+                    }
+
+                    class O {}
+
+                    class A extends O {
+                        use T;
+
+                        /** @var string */
+                        private $value;
+
+                        public function __construct(string $string) {
+                           $this->value = $string;
+                        }
+                    }
+
+                    class B extends O {
+                        use T;
+
+                        /** @var bool */
+                        private $value;
+
+                        public function __construct(bool $bool) {
+                           $this->value = $bool;
+                        }
+                    }',
+            ],
+            'manyTraitAliases' => [
+                '<?php
+                    trait Foo {
+                        public static function staticMethod():void {}
+                        public function nonstatic():void {}
+                    }
+
+                    Class Bar {
+                        use Foo {
+                            Foo::staticMethod as foo;
+                            Foo::staticMethod as foobar;
+                            Foo::staticMethod as fine;
+                            Foo::nonstatic as bad;
+                            Foo::nonstatic as good;
+                        }
+                    }
+
+                    $b = new Bar();
+
+                    Bar::fine();
+                    $b::fine();
+                    $b->fine();
+
+                    $b->good();
+
+                    Bar::foo();
+                    Bar::foobar();
+
+                    $b::foo();
+                    $b::foobar();
+
+                    $b->foo();
+                    $b->foobar();
+
+                    $b->bad();',
+            ],
+            'inheritedProtectedTraitMethodAccess' => [
+                '<?php
+                    trait T {
+                        private function bar() : void {}
+                    }
+
+                    class A {
+                        use T {
+                            bar as protected;
+                        }
+                    }
+
+                    class AChild extends A {
+                        public function foo() : void {
+                            $this->bar();
+                        }
+                    }',
+            ],
+            'inheritedPublicTraitMethodAccess' => [
+                '<?php
+                    trait T {
+                        private function bar() : void {}
+                    }
+
+                    class A {
+                        use T {
+                            bar as public;
+                        }
+                    }
+
+                    (new A)->bar();',
+            ],
+            'allowImplementMethodMadePublicInClass' => [
+                '<?php
+                    interface I {
+                        public function boo() : void;
+                    }
+
+                    trait T {
+                        private function boo() : void {}
+                    }
+
+                    class A implements I {
+                        use T { boo as public; }
+                    }',
+            ],
+            'allowImplementMethodMadePublicInParent' => [
+                '<?php
+                    interface I {
+                        public function boo() : void;
+                    }
+
+                    trait T {
+                        private function boo() : void {}
+                    }
+
+                    class B {
+                        use T { boo as public; }
+                    }
+
+                    class BChild extends B implements I {}',
+            ],
+            'allowTraitParentDefinition' => [
+                '<?php
+                    class A {}
+
+                    class C extends A
+                    {
+                        use T;
+                    }
+
+                    trait T
+                    {
+                        public function bar() : ?C
+                        {
+                            if ($this instanceof A) {
+                                return $this;
+                            }
+
+                            return null;
+                        }
+                    }',
+            ],
+            'noCrashOnUndefinedIgnoredTrait' => [
+                '<?php
+                    /** @psalm-suppress UndefinedTrait */
+                    class C {
+                        use UnknownTrait;
+                    }',
+            ],
+            'reconcileStaticTraitProperties' => [
+                '<?php
+                    trait T {
+                        /**
+                         * @var string|null
+                         */
+                        private static $b;
+
+                        private static function booA(): string {
+                            if (self::$b === null) {
+                                return "hello";
+                            }
+                            return self::$b;
+                        }
+                    }
+
+                    class C {
+                        use T;
+                    }',
+            ],
+            'covariantAbstractReturn' => [
+                '<?php
+                    trait T {
+                        /** @return iterable */
+                        abstract public function bar();
+                    }
+
+                    class C {
+                        use T;
+
+                        /** @return array */
+                        public function bar() { return []; }
+                    }',
+            ],
+            'traitSelfParam' => [
+                '<?php
+                    trait T {
+                        public function bar(self $object): self {
+                            return $this;
+                        }
+                    }
+
+                    class Foo {
+                        use T;
+                    }
+
+                    $f1 = new Foo();
+                    $f2 = (new Foo())->bar($f1);',
+            ],
+            'traitSelfDocblockReturn' => [
+                '<?php
+                    trait T {
+                        /** @return self */
+                        public function getSelf() {
+                            return $this;
+                        }
+                    }
+
+                    class C {
+                        use T;
+                    }',
+            ],
+            'abstractThisMethod' => [
+                '<?php
+                    trait ATrait {
+                        /** @return $this */
+                        abstract public function bar();
+                    }
+
+                    class C {
+                        use ATrait;
+
+                        /** @return $this */
+                        public function bar() {
+                            return $this;
+                        }
+                    }'
+            ],
+            'classAliasedTrait' => [
+                '<?php
+                    trait FeatureV1 {}
+
+                    class_alias(FeatureV1::class, Feature::class);
+
+                    class Application {
+                        use Feature;
+                    }',
+            ],
+            'renameMethodNoCrash' => [
+                '<?php
+
+                    trait HelloTrait {
+                        protected function sayHello() : string {
+                            return "Hello";
+                        }
+                    }
+
+                    class Person {
+                        use HelloTrait {
+                            sayHello as originalSayHello;
+                        }
+
+                        protected function sayHello() : string {
+                            return $this->originalSayHello();
+                        }
+                    }
+
+                    class BrokenPerson extends Person {
+                        protected function originalSayHello() : string {
+                            return "bad";
+                        }
+                    }',
+            ],
+            'instanceofStaticInsideTrait' => [
+                '<?php
+                    trait T {
+                        /**
+                         * @param mixed $instance
+                         * @return ?static
+                         */
+                        public static function filterInstance($instance) {
+                            return $instance instanceof static ? $instance : null;
+                        }
+                    }
+
+                    class A {
+                        use T;
+                    }'
+            ],
+            'propertyNotDefinedInTrait' => [
+                '<?php
+                    class A1 {
+                        use A2;
+
+                        public static string $titlefield = "blah";
+                    }
+
+                    trait A2 {
+                        public static function test() : string {
+                            /**
+                             * @var string
+                             */
+                            $sortfield = (isset(static::$sortfield)) ?
+                                        static::$sortfield
+                                        : static::$titlefield;
+                            return $sortfield;
+                        }
+                    }'
+            ],
+            'staticNotBoundInFinal' => [
+                '<?php
+                    trait Foo {
+                        /**
+                         * @return static
+                         */
+                        final public function foo(): self
+                        {
+                            return $this;
+                        }
+                    }
+
+                    class A {
+                        use Foo;
+                    }'
+            ],
         ];
     }
 
     /**
-     * @return array
+     * @return iterable<string,array{string,error_message:string,2?:string[],3?:bool,4?:string}>
      */
-    public function providerFileCheckerInvalidCodeParse()
+    public function providerInvalidCodeParse()
     {
         return [
             'inaccessiblePrivateMethodFromInheritedTrait' => [
                 '<?php
                     trait T {
-                        private function fooFoo() : void {
+                        private function fooFoo(): void {
                         }
                     }
 
@@ -333,7 +994,7 @@ class TraitTest extends TestCase
                     }
 
                     class C extends B {
-                        public function doFoo() : void {
+                        public function doFoo(): void {
                             $this->fooFoo();
                         }
                     }',
@@ -349,17 +1010,17 @@ class TraitTest extends TestCase
             'missingPropertyType' => [
                 '<?php
                     trait T {
-                        public $foo;
+                        public $foo = null;
                     }
                     class A {
                         use T;
 
-                        public function assignToFoo() : void {
+                        public function assignToFoo(): void {
                             $this->foo = 5;
                         }
                     }',
-                'error_message' => 'MissingPropertyType - src/somefile.php:3 - Property T::$foo does not have a ' .
-                    'declared type - consider null|int',
+                'error_message' => 'MissingPropertyType - src' . DIRECTORY_SEPARATOR . 'somefile.php:3:32 - Property T::$foo does not have a ' .
+                    'declared type - consider int|null',
             ],
             'missingPropertyTypeWithConstructorInit' => [
                 '<?php
@@ -369,11 +1030,11 @@ class TraitTest extends TestCase
                     class A {
                         use T;
 
-                        public function __construct() : void {
+                        public function __construct() {
                             $this->foo = 5;
                         }
                     }',
-                'error_message' => 'MissingPropertyType - src/somefile.php:3 - Property T::$foo does not have a ' .
+                'error_message' => 'MissingPropertyType - src' . DIRECTORY_SEPARATOR . 'somefile.php:3:32 - Property T::$foo does not have a ' .
                     'declared type - consider int',
             ],
             'missingPropertyTypeWithConstructorInitAndNull' => [
@@ -384,16 +1045,16 @@ class TraitTest extends TestCase
                     class A {
                         use T;
 
-                        public function __construct() : void {
+                        public function __construct() {
                             $this->foo = 5;
                         }
 
-                        public function makeNull() : void {
+                        public function makeNull(): void {
                             $this->foo = null;
                         }
                     }',
-                'error_message' => 'MissingPropertyType - src/somefile.php:3 - Property T::$foo does not have a ' .
-                    'declared type - consider null|int',
+                'error_message' => 'MissingPropertyType - src' . DIRECTORY_SEPARATOR . 'somefile.php:3:32 - Property T::$foo does not have a ' .
+                    'declared type - consider int|null',
             ],
             'missingPropertyTypeWithConstructorInitAndNullDefault' => [
                 '<?php
@@ -403,17 +1064,17 @@ class TraitTest extends TestCase
                     class A {
                         use T;
 
-                        public function __construct() : void {
+                        public function __construct() {
                             $this->foo = 5;
                         }
                     }',
-                'error_message' => 'MissingPropertyType - src/somefile.php:3 - Property T::$foo does not have a ' .
-                    'declared type - consider int|nul',
+                'error_message' => 'MissingPropertyType - src' . DIRECTORY_SEPARATOR . 'somefile.php:3:32 - Property T::$foo does not have a ' .
+                    'declared type - consider int|null',
             ],
             'redefinedTraitMethodInSubclass' => [
                 '<?php
                     trait T {
-                        public function fooFoo() : void {
+                        public function fooFoo(): void {
                         }
                     }
 
@@ -422,10 +1083,90 @@ class TraitTest extends TestCase
                     }
 
                     class C extends B {
-                        public function fooFoo(string $a) : void {
+                        public function fooFoo(string $a): void {
                         }
                     }',
                 'error_message' => 'MethodSignatureMismatch',
+            ],
+            'missingTraitPropertyType' => [
+                '<?php
+                    trait T {
+                        public $foo = 5;
+                    }
+
+                    class A {
+                        use T;
+                    }',
+                'error_message' => 'MissingPropertyType',
+            ],
+            'nestedTraitWithBadReturnType' => [
+                '<?php
+                    trait A {
+                        public function foo() : string {
+                            return 5;
+                        }
+                    }
+
+                    trait B {
+                        use A;
+                    }
+
+                    class C {
+                        use B;
+                    }',
+                'error_message' => 'InvalidReturnType',
+            ],
+            'replaceTraitMethod' => [
+                '<?php
+                    trait T {
+                        protected function foo() : void {}
+
+                        public function bat() : void {
+                            $this->foo();
+                        }
+                    }
+
+                    class C {
+                        use T;
+
+                        protected function foo(string $s) : void {}
+                    }',
+                'error_message' => 'TooFewArguments',
+            ],
+            'traitMethodMadePrivate' => [
+                '<?php
+                    trait T {
+                        public function foo() : void {
+                            echo "here";
+                        }
+                    }
+
+                    class C {
+                        use T {
+                            foo as private traitFoo;
+                        }
+
+                        public function bar() : void {
+                            $this->traitFoo();
+                        }
+                    }
+
+                    class D extends C {
+                        public function bar() : void {
+                            $this->traitFoo(); // should fail
+                        }
+                    }',
+                'error_message' => 'InaccessibleMethod',
+            ],
+            'preventTraitPropertyType' => [
+                '<?php
+                    trait T {}
+
+                    class X {
+                      /** @var T|null */
+                      public $hm;
+                    }',
+                'error_message' => 'UndefinedDocblockClass',
             ],
         ];
     }
